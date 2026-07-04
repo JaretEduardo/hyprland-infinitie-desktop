@@ -74,6 +74,29 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
 2. **Keybindings**
    Add these binds to enable keyboard navigation between your floating windows:
    ```bash
+   hl.window_rule({
+       name  = "todas-flotantes",
+       match = { class = ".*" },
+       float = true,
+   })
+
+   local mainMod = "SUPER"
+
+
+   -- Workspaces - cambiar
+   hl.bind(mainMod .. " + Z", hl.dsp.focus({ workspace = "-1" }))
+   hl.bind(mainMod .. " + X", hl.dsp.focus({ workspace = "+1" }))
+   hl.bind(mainMod .. " + SHIFT + Z", hl.dsp.window.move({ workspace = "-1" }))
+   hl.bind(mainMod .. " + SHIFT + X", hl.dsp.window.move({ workspace = "+1" })
+
+   hl.bind(mainMod .. " + C", hl.dsp.window.close(), { repeating = true })
+   
+   -- Mouse
+   hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(), { mouse = true })
+   hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
+   hl.bind("SUPER + SHIFT + mouse:272", hl.dsp.window.drag(), { mouse = true })
+
+   
    hl.bind(mainMod .. " + V", hl.dsp.window.float({ action = "toggle" }))
    hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("python3 ~/scripts/floating_tile_toggle.py"))
 
@@ -109,5 +132,5 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
 
  **Move windows:** Press/hold ***SHIFT + SUPER + Arrow Keys*** to move windows on floating.
 
-**Move tiled windows:** Press ***SUPR + ALT + Arrow Keys*** yo move tiled windows.
+ **Move tiled windows:** Press ***SUPR + ALT + Arrow Keys*** yo move tiled windows.
 

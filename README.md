@@ -11,15 +11,15 @@ A powerful script to transform your Hyprland workspace into an "infinite" canvas
 
 -App Protection: Prevents specific apps (like browsers) from losing focus accidentally during navigation.
 
--Invert Support: Easily toggle the movement direction
+-Invert Support: Easily toggle the movement direction.
 
 ## New features
 
--Now work in LUA
+-Now works in LUA (Hyprland 0.55+).
 
--Toggle tiling floating/layout
+-Toggle tiling floating/layout.
 
--Rezize and move windows without mouse
+-Rezize and move windows without mouse.
 
 
 ## 🛠️ Requirements
@@ -56,7 +56,7 @@ sudo reboot
    mkdir -p ~/scripts
    ```
 2. **Download the scripts:**
-Place all scripts (.py and .sh) inside ~/scripts/.
+Place all scripts (.py and .sh) inside ~/scripts/
 
 3. **Grant execution permissions:**
   ```bash
@@ -102,11 +102,13 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
 ## 🖱️ How to use
  **Panning:** Hold ***SUPER + ALT*** and move your mouse to slide the entire desktop.
  
- **Navigation:** Press ***SUPER + Arrow Keys*** to center and focus the next floating window.
+ **Navigation:** Press ***SUPER + Arrow Keys*** to center and focus the next floating/tiled window.
  
  **Toggle floating/layout:** Press ***SUPER + D*** to toggle all windows floating/mosaic.
 
  **Rezize window:** Press/hold ***CTRL + SUPER + Arrow Keys*** to rezize windows.
 
  **Move windows:** Press/hold ***SHIFT + SUPER + Arrow Keys*** to move windows on floating.
+
+**Move tiled windows:** Press ***SUPR + ALT + Arrow Keys*** yo move tiled windows.
 

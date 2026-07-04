@@ -74,7 +74,7 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
 2. **Keybindings**
    Add these binds to enable keyboard navigation between your floating windows:
    
-   ***(if you already have a bind that uses one of the required telcas or for workspaces, replace them)***
+   ***(if you already have a bind that uses one of the required keys or for workspaces, replace them)***
    ```bash
 
 

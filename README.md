@@ -100,6 +100,13 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
    ```
 
 ## 🖱️ How to use
- **Panning:** Hold ***SUPER + ALT + Left Click*** and move your mouse to slide the entire desktop.
+ **Panning:** Hold ***SUPER + ALT*** and move your mouse to slide the entire desktop.
  
- **Navigation:** Press ***CTRL + SUPER + Left/Right Arrow*** to center and focus the next floating window.
+ **Navigation:** Press ***SUPER + Arrow Keys*** to center and focus the next floating window.
+ 
+ **Toggle floating/layout:** Press ***SUPER + D*** to toggle all windows floating/mosaic.
+
+ **Rezize window:** Press/hold ***CTRL + SUPER + Arrow Keys*** to rezize windows.
+
+ **Move windows:** Press/hold ***SHIFT + SUPER + Arrow Keys*** to move windows on floating.
+

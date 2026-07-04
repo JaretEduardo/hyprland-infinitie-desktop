@@ -67,36 +67,35 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
 
 1. **Auto-start**
    ```bash
-   # Launch the infinite desktop daemon (replace 'your_user' with your actual username)
     hl.on("hyprland.start", function()
-        hl.exec_cmd("python3 /home/your_user/scripts/infinite_desktop_core.py 1.6 > /tmp/infinite-desktop.log 2>&1")
+        hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6 > /tmp/infinite-desktop.log 2>&1")
    end)
    ```
 2. **Keybindings**
    Add these binds to enable keyboard navigation between your floating windows:
    ```bash
    hl.bind(mainMod .. " + V", hl.dsp.window.float({ action = "toggle" }))
-   hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("python3 /home/your_user/scripts/floating_tile_toggle.py"))
+   hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("python3 ~/scripts/floating_tile_toggle.py"))
 
-   hl.bind(mainMod .. " + left",  hl.dsp.exec_cmd("python3 /home/your_user/scripts/navigate_windows.py left"))
-   hl.bind(mainMod .. " + right", hl.dsp.exec_cmd("python3 /home/your_user/scripts/navigate_windows.py right"))
-   hl.bind(mainMod .. " + up",    hl.dsp.exec_cmd("python3 /home/your_user/scripts/navigate_windows.py up"))
-   hl.bind(mainMod .. " + down",  hl.dsp.exec_cmd("python3 /home/your_user/scripts/navigate_windows.py down"))
+   hl.bind(mainMod .. " + left",  hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py left"))
+   hl.bind(mainMod .. " + right", hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py right"))
+   hl.bind(mainMod .. " + up",    hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py up"))
+   hl.bind(mainMod .. " + down",  hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py down"))
 
-   hl.bind(mainMod .. " + ALT + left",  hl.dsp.exec_cmd("python3 /home/your_user/scripts/move_window_tiled.py left"))
-   hl.bind(mainMod .. " + ALT + right", hl.dsp.exec_cmd("python3 /home/your_user/scripts/move_window_tiled.py right"))
-   hl.bind(mainMod .. " + ALT + up",    hl.dsp.exec_cmd("python3 /home/your_user/scripts/move_window_tiled.py up"))
-   hl.bind(mainMod .. " + ALT + down",  hl.dsp.exec_cmd("python3 /home/your_user/scripts/move_window_tiled.py down"))
+   hl.bind(mainMod .. " + ALT + left",  hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py left"))
+   hl.bind(mainMod .. " + ALT + right", hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py right"))
+   hl.bind(mainMod .. " + ALT + up",    hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py up"))
+   hl.bind(mainMod .. " + ALT + down",  hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py down"))
 
-   hl.bind(mainMod .. " + SHIFT + left",  hl.dsp.exec_cmd("python3 /home/your_user/scripts/move_window.py left"), { repeating =    true })
-   hl.bind(mainMod .. " + SHIFT + right", hl.dsp.exec_cmd("python3 /home/your_user/scripts/move_window.py right"), { repeating     = true })
-   hl.bind(mainMod .. " + SHIFT + up",    hl.dsp.exec_cmd("python3 /home/your_user/scripts/move_window.py up"), { repeating =      true })
-   hl.bind(mainMod .. " + SHIFT + down",  hl.dsp.exec_cmd("python3 /home/your_user/scripts/move_window.py down"), { repeating =    true })
+   hl.bind(mainMod .. " + SHIFT + left",  hl.dsp.exec_cmd("python3 ~/scripts/move_window.py left"), { repeating =    true })
+   hl.bind(mainMod .. " + SHIFT + right", hl.dsp.exec_cmd("python3 ~/scripts/move_window.py right"), { repeating     = true })
+   hl.bind(mainMod .. " + SHIFT + up",    hl.dsp.exec_cmd("python3 ~/scripts/move_window.py up"), { repeating =      true })
+   hl.bind(mainMod .. " + SHIFT + down",  hl.dsp.exec_cmd("python3 ~/scripts/move_window.py down"), { repeating =    true })
 
-   hl.bind(mainMod .. " + CTRL + left",  hl.dsp.exec_cmd("python3 /home/your_user/scripts/resize_window.py left"), { repeating     = true })
-   hl.bind(mainMod .. " + CTRL + right", hl.dsp.exec_cmd("python3 /home/your_user/scripts/resize_window.py right"), { repeating    = true })
-   hl.bind(mainMod .. " + CTRL + up",    hl.dsp.exec_cmd("python3 /home/your_user/scripts/resize_window.py up"), { repeating =     true })
-   hl.bind(mainMod .. " + CTRL + down",  hl.dsp.exec_cmd("python3 /home/your_user/scripts/resize_window.py down"), { repeating     = true })
+   hl.bind(mainMod .. " + CTRL + left",  hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py left"), { repeating     = true })
+   hl.bind(mainMod .. " + CTRL + right", hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py right"), { repeating    = true })
+   hl.bind(mainMod .. " + CTRL + up",    hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py up"), { repeating =     true })
+   hl.bind(mainMod .. " + CTRL + down",  hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py down"), { repeating     = true })
    ```
 
 ## 🖱️ How to use

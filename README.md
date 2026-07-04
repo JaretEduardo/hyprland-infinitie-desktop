@@ -82,14 +82,11 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
 
    local mainMod = "SUPER"
 
-
-   -- Workspaces - cambiar
+   -- Workspaces
    hl.bind(mainMod .. " + Z", hl.dsp.focus({ workspace = "-1" }))
    hl.bind(mainMod .. " + X", hl.dsp.focus({ workspace = "+1" }))
    hl.bind(mainMod .. " + SHIFT + Z", hl.dsp.window.move({ workspace = "-1" }))
    hl.bind(mainMod .. " + SHIFT + X", hl.dsp.window.move({ workspace = "+1" })
-
-   hl.bind(mainMod .. " + C", hl.dsp.window.close(), { repeating = true })
    
    -- Mouse
    hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(), { mouse = true })

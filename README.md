@@ -122,6 +122,9 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
    ```
 
 ## 🖱️ How to use
+
+ **Workspaces:** Press ***SUPER + Z or X*** to change of workspaces.
+ 
  **Panning:** Hold ***SUPER + ALT*** and move your mouse to slide the entire desktop.
  
  **Navigation:** Press ***SUPER + Arrow Keys*** to center and focus the next floating/tiled window.

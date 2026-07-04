@@ -7,11 +7,7 @@ A powerful script to transform your Hyprland workspace into an "infinite" canvas
 
 -Infinite Panning: Move the entire "canvas" of floating windows by holding a modifier combination and moving your mouse.
 
--Smart Navigation: Cycle focus between floating windows with a smooth panning animation.
-
--App Protection: Prevents specific apps (like browsers) from losing focus accidentally during navigation.
-
--Invert Support: Easily toggle the movement direction.
+-Smart Navigation: Cycle focus between floating windows
 
 ## New features
 
@@ -20,6 +16,8 @@ A powerful script to transform your Hyprland workspace into an "infinite" canvas
 -Toggle tiling floating/layout.
 
 -Rezize and move windows without mouse.
+
+-Better navigation.
 
 
 ## 🛠️ Requirements
@@ -124,5 +122,5 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
 
  **Move windows:** Press/hold ***SHIFT + SUPER + Arrow Keys*** to move windows on floating.
 
- **Move tiled windows:** Press ***SUPR + ALT + Arrow Keys*** yo move tiled windows.
+ **Move tiled windows:** Press ***SUPER + ALT + Arrow Keys*** yo move tiled windows.
 

@@ -118,6 +118,8 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
  
  **Toggle floating/layout:** Press ***SUPER + D*** to toggle all windows floating/mosaic.
 
+ **Toggle floating/layout:** Press ***SUPER + V*** ti toggle one window flotating/mosaic.
+
  **Rezize window:** Press/hold ***CTRL + SUPER + Arrow Keys*** to rezize windows.
 
  **Move windows:** Press/hold ***SHIFT + SUPER + Arrow Keys*** to move windows on floating.

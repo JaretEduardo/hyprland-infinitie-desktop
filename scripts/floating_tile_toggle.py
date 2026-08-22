@@ -143,7 +143,7 @@ def is_tiled_state(workspace_id):
     return str(workspace_id) in state
 
 
-#qwertyuiop
+# qwertyuiop
 
 def float_all_tiled(workspace_id):
     """Pone flotantes todas las ventanas tileadas del workspace, sin mover."""

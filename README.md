@@ -28,6 +28,9 @@ You need Python 3, jq, bash, python-evdev installed on your system.
   ```bash
   sudo pacman -S python python-evdev bash jq
     ```
+
+*For Fedora or Debian-based distributions, make sure you have the latest version of Hyprland compiled or installed.*
+  
 * **Fedora:**
   ```bash
   sudo dnf install python python-evdev bash jq
@@ -47,6 +50,26 @@ sudo reboot
   ```
 
 ## 📥 Installation
+
+# Automatic:
+
+1. **Download the file named "Install hyprland infinite desktop" into the "~/" directory (Home/USER/).**
+   
+2. **Run the following commands:**
+   ```bash
+   chmod +x install-hyprland-infinite-desktop.sh
+   ```
+
+   ```bash
+   ./install-hyprland-infinite-desktop.sh
+   ```
+
+3. **Read the changes in hyprland.lua carefully (they are printed at the end of the script).**
+
+4. **Reboot your system**
+
+
+# Manual:
 
 1. **Create the directory:**
    All scripts must be stored in a dedicated folder in your home directory:

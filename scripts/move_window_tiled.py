@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-move_window_tiled.py
-Super+Alt+flechas:
-- Tileado master:   movewindow l/r/u/d
-- Tileado dwindle:  movewindow left/right/up/down
-- Flotante:         delega a move_window.py (infinite canvas)
 
-Uso: python3 move_window_tiled.py <left|right|up|down>
-"""
 
 import subprocess
 import sys
@@ -20,7 +12,6 @@ DIR_SHORT = {"left": "l", "right": "r", "up": "u", "down": "d"}
 
 
 def get_layout():
-    # hyprctl getoption NO pasa por el parser de dispatch, sigue igual.
     try:
         r = subprocess.run(["hyprctl", "getoption", "general:layout"],
                            capture_output=True, text=True, timeout=2)
@@ -47,10 +38,6 @@ def main():
         move_script = os.path.join(scripts_dir, "move_window.py")
         subprocess.run(["python3", move_script, direction], timeout=3)
     else:
-        # La wiki documenta el selector de direccion de hl.dsp como
-        # "l / r / u / d" sin importar el layout (a diferencia de la sintaxis
-        # vieja, que aceptaba "left"/"right" solo en dwindle). Se usa siempre
-        # la forma corta.
         move_window_tiled(DIR_SHORT[direction])
 
 

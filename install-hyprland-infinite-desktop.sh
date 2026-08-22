@@ -1,26 +1,6 @@
 #!/usr/bin/env bash
 #
-# install-hyprland-infinite-desktop.sh
-#
-# Automatic installer for:
-#   https://github.com/sarodscommits/hyprland-infinitie-desktop-v2
-#
-# What it does:
-#   1. Installs the required packages (python, python-evdev, bash, jq)
-#      based on your distro (Arch / Fedora / Debian-Ubuntu).
-#   2. Adds your user to the "input" group (needed by python-evdev).
-#   3. Downloads the repo and copies the scripts into ~/scripts/.
-#   4. Grants execute permissions to the necessary scripts.
-#   5. Modifies ~/.config/hypr/hyprland.lua:
-#        - adds the autostart entry for infinite_desktop_core.py
-#        - adds the repo's keybinds
-#        - if any of those binds is already used by something else in your
-#          config, automatically reassigns it to another free key
-#   6. At the end, prints the full table of new binds (with the final keys,
-#      whether they're the repo's originals or the reassigned ones).
-#
-# Safe to re-run: if it detects the bind block was already installed
-# before, it warns and does not touch the file again.
+# im in love with-
 #
 set -euo pipefail
 
@@ -44,9 +24,7 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# ---------------------------------------------------------------------------
-# 1. Distro detection and package installation
-# ---------------------------------------------------------------------------
+# sh1t over trash
 install_packages() {
     log "Detecting distro and installing required packages (python, python-evdev, bash, jq)..."
 
@@ -74,9 +52,9 @@ install_packages() {
     ok "Packages installed (or already present)."
 }
 
-# ---------------------------------------------------------------------------
-# 2. "input" group membership (required by python-evdev)
-# ---------------------------------------------------------------------------
+
+# 2. "input" group membership (required by python-evdev and a lot of things)
+
 setup_input_group() {
     log "Adding your user (${USER}) to the 'input' group..."
     if groups "$USER" | grep -qw input; then
@@ -88,9 +66,9 @@ setup_input_group() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# 3. Download the repo and copy the scripts
-# ---------------------------------------------------------------------------
+
+# 3. Download the repo and copy the shtty scripts
+
 fetch_and_install_scripts() {
     log "Downloading the repository..."
     if ! curl -fsSL -o "${TMP_DIR}/repo.tar.gz" "${REPO_TARBALL}"; then
@@ -110,7 +88,7 @@ fetch_and_install_scripts() {
     log "Creating ${SCRIPTS_DEST} and copying files..."
     mkdir -p "${SCRIPTS_DEST}"
 
-    # Copy all .py and .sh files (files.zip is just a duplicate bundle, skip it)
+    # Copy all .py and .sh files for nothing
     find "${TMP_DIR}/repo/scripts" -maxdepth 1 -type f \( -name "*.py" -o -name "*.sh" \) -print0 |
         while IFS= read -r -d '' f; do
             cp -f "$f" "${SCRIPTS_DEST}/"
@@ -134,9 +112,8 @@ fetch_and_install_scripts() {
     ok "Scripts installed in ${SCRIPTS_DEST}"
 }
 
-# ---------------------------------------------------------------------------
-# 4. Patch hyprland.lua (autostart + binds, with conflict reassignment)
-# ---------------------------------------------------------------------------
+# 4.  Now patch hyprland.lua (autostart + binds, with conflict reassignment)
+
 patch_hyprland_config() {
     log "Updating ${HYPR_LUA} (autostart + keybinds)..."
     mkdir -p "$(dirname "${HYPR_LUA}")"
@@ -358,9 +335,8 @@ if __name__ == "__main__":
 PYEOF
 }
 
-# ---------------------------------------------------------------------------
 # main
-# ---------------------------------------------------------------------------
+
 NEED_RELOGIN=0
 
 echo -e "${C_BOLD}hyprland-infinite-desktop-v2 installer${C_RESET}"

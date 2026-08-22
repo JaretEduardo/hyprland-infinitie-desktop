@@ -23,9 +23,6 @@ LOCK_FILE  = "/tmp/floating_tile_toggle.lock"
 STATE_FILE = "/tmp/floating_tile_state.json"
 
 
-# ──────────────────────────────────────────────
-# Estado
-# ──────────────────────────────────────────────
 
 def load_state():
     try:
@@ -43,10 +40,6 @@ def clear_state(workspace_id):
     state.pop(str(workspace_id), None)
     save_state(state)
 
-
-# ──────────────────────────────────────────────
-# Lógica principal
-# ──────────────────────────────────────────────
 
 def get_active_workspace():
     ws = hyprctl_json(["activeworkspace"])
@@ -76,7 +69,6 @@ def tile_floating_windows(workspace_id):
         print("No hay ventanas flotantes en el workspace activo.")
         return False
 
-    # Guardar posiciones y tamaños indexados por address
     positions = {}
     for w in windows:
         positions[w["address"]] = {
@@ -94,7 +86,6 @@ def tile_floating_windows(workspace_id):
 
     print(f"Guardadas {len(positions)} ventanas. Tileando...")
 
-    # Quitar flotante a todas en un solo batch
     exprs = [toggle_floating_lua(addr) for addr in positions]
     batch(exprs, timeout=5)
 
@@ -122,12 +113,10 @@ def restore_floating_windows(workspace_id):
 
     print(f"Restaurando {len(tiled)} ventanas a flotante...")
 
-    # Paso 1: togglefloating a todas en un batch
     toggle_exprs = [toggle_floating_lua(w["address"]) for w in tiled if not w.get("floating")]
     if toggle_exprs:
         batch(toggle_exprs, timeout=5)
 
-    # Paso 2: mover y redimensionar todas en un solo batch
     move_exprs = []
     for w in tiled:
         addr = w["address"]
@@ -154,9 +143,7 @@ def is_tiled_state(workspace_id):
     return str(workspace_id) in state
 
 
-# ──────────────────────────────────────────────
-# Entry point
-# ──────────────────────────────────────────────
+#qwertyuiop
 
 def float_all_tiled(workspace_id):
     """Pone flotantes todas las ventanas tileadas del workspace, sin mover."""
@@ -179,7 +166,7 @@ def float_all_tiled(workspace_id):
 
 
 def main():
-    # Lock file: si otra instancia ya corre, salir silenciosamente
+
     lock_fd = open(LOCK_FILE, "w")
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -194,15 +181,15 @@ def main():
             sys.exit(1)
 
         if is_tiled_state(workspace_id):
-            # Hay historial -> restaurar posiciones
+
             restore_floating_windows(workspace_id)
         else:
             floating = get_floating_windows(workspace_id)
             if floating:
-                # Hay flotantes -> tilear y guardar posiciones
+
                 tile_floating_windows(workspace_id)
             else:
-                # No hay flotantes ni historial -> flotar todas las tileadas
+
                 float_all_tiled(workspace_id)
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)

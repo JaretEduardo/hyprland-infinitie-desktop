@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-floating_tile_toggle.py
-Super+D: alterna entre mosaico y flotante en el workspace activo.
-Al volver a flotante, restaura cada ventana a su posición anterior
-(incluyendo coordenadas negativas del infinite canvas).
 
-Uso: python3 floating_tile_toggle.py
-     (llamado desde un bind en hyprland.lua)
-"""
 
 import subprocess
 import json

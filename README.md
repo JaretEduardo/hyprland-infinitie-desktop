@@ -20,35 +20,6 @@ A powerful script to transform your Hyprland workspace into an "infinite" canvas
 -Better navigation.
 
 
-## 🛠️ Requirements
-
-You need Python 3, jq, bash, python-evdev installed on your system.
-### Installation by Distribution:
-* **Arch Linux:**
-  ```bash
-  sudo pacman -S python python-evdev bash jq
-    ```
-
-*For Fedora or Debian-based distributions, make sure you have the latest version of Hyprland compiled or installed.*
-  
-* **Fedora:**
-  ```bash
-  sudo dnf install python python-evdev bash jq
-    ```
-* **Ubuntu / Debian:**
-  ```bash
-  sudo apt install python python-evdev bash jq
-    ```
-## 🔑 Permissions
-1.Add your user to the group
-```bash
-sudo usermod -aG input $USER
-  ```
-2.Restart your session
-```bash
-sudo reboot
-  ```
-
 ## 📥 Installation
 
 # Automatic:
@@ -71,18 +42,52 @@ sudo reboot
 
 # Manual:
 
-1. **Create the directory:**
+1. **Requirements**
+   You need Python 3, jq, bash, python-evdev installed on your system.
+
+   ### Installation by Distribution:
+
+   * **Arch Linux:**
+     ```bash
+     sudo pacman -S python python-evdev bash jq
+     ```
+
+   *For Fedora or Debian-based distributions, make sure you have the latest version of Hyprland compiled or installed.*
+
+   * **Fedora:**
+     ```bash
+     sudo dnf install python python-evdev bash jq
+     ```
+   * **Ubuntu / Debian:**
+     ```bash
+     sudo apt install python python-evdev bash jq
+     ```
+
+2. **Permissions**
+
+   Add your user to the group:
+   ```bash
+   sudo usermod -aG input $USER
+   ```
+
+   Restart your session:
+   ```bash
+   sudo reboot
+   ```
+
+3. **Create the directory:**
    All scripts must be stored in a dedicated folder in your home directory:
    ```bash
    mkdir -p ~/scripts
    ```
-2. **Download the scripts:**
-Place all scripts (.py and .sh) inside ~/scripts/
+4. **Download the scripts:**
+   Place all scripts (.py and .sh) inside ~/scripts/
 
-3. **Grant execution permissions:**
-  ```bash
-  chmod +x ~/scripts/infinite-desktop.sh ~/scripts/floating_tile_toggle.py ~/scripts/move_window_tiled.py ~/scripts/navigate_windows.py ~/scripts/resize_window.py
-  ```
+5. **Grant execution permissions:**
+   ```bash
+   chmod +x ~/scripts/infinite-desktop.sh ~/scripts/floating_tile_toggle.py ~/scripts/move_window_tiled.py ~/scripts/navigate_windows.py ~/scripts/resize_window.py
+   ```
+
 ## ⚙️ Configuration
 Add the following lines to your ~/.config/hypr/hyprland.lua:
 
@@ -148,4 +153,3 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
  **Move windows:** Press/hold ***SHIFT + SUPER + Arrow Keys*** to move windows on floating.
 
  **Move tiled windows:** Press ***SUPER + ALT + Arrow Keys*** yo move tiled windows.
-

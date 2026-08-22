@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# discover_hyprland_api.sh
-#
-# Corre esto UNA vez, con al menos una ventana FLOTANTE abierta y enfocada,
-# para confirmar (o corregir) los nombres de campo que hypr_ipc.py asume
-# para mover/redimensionar ventanas a coordenadas exactas.
-#
-# Uso: bash discover_hyprland_api.sh
+
 
 set -uo pipefail
 

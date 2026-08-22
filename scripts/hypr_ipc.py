@@ -41,9 +41,7 @@ def batch_async(lua_exprs):
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-# ─────────────────────────────────────────────────────────────
-# Confirmado contra la wiki oficial
-# ─────────────────────────────────────────────────────────────
+# official wiki
 
 def toggle_floating_lua(address=None):
     w = f', window = "address:{address}"' if address else ""

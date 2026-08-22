@@ -88,7 +88,7 @@ A powerful script to transform your Hyprland workspace into an "infinite" canvas
    chmod +x ~/scripts/infinite-desktop.sh ~/scripts/floating_tile_toggle.py ~/scripts/move_window_tiled.py ~/scripts/navigate_windows.py ~/scripts/resize_window.py
    ```
 
-## ⚙️ Configuration
+## ⚙️ Configuration (for manual installation)
 Add the following lines to your ~/.config/hypr/hyprland.lua:
 
 1. **Auto-start**

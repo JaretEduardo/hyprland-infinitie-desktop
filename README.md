@@ -106,13 +106,13 @@ Add the following lines to your ~/.config/hypr/hyprland.lua:
 
    local mainMod = "SUPER"
 
-   -- Workspaces - cambiar
+   -- Workspaces
    hl.bind(mainMod .. " + Z", hl.dsp.focus({ workspace = "-1" }))
    hl.bind(mainMod .. " + X", hl.dsp.focus({ workspace = "+1" }))
    hl.bind(mainMod .. " + SHIFT + Z", hl.dsp.window.move({ workspace = "-1" }))
    hl.bind(mainMod .. " + SHIFT + X", hl.dsp.window.move({ workspace = "+1" }))
 
-   -- Infinite desktop / mover y redimensionar ventanas
+   -- Infinite desktop 
    hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("python3 ~/scripts/floating_tile_toggle.py"))
 
    hl.bind(mainMod .. " + left",  hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py left"))

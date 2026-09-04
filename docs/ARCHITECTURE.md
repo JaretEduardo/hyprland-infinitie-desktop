@@ -37,10 +37,20 @@ docs/                          per-topic documentation
 `install.sh` resolves its own location (following symlinks, ignoring the cwd)
 and hands off to `install/common.sh`, which registers commands and dispatches to
 `install/cmd/<name>.sh`. Read-only commands (`check`, `doctor`, `deps`, and the
-plan mode of `gpu` / `dotfiles`) never change anything. Commands that write
-follow **detect → explain → show the exact change → confirm → apply**, honour
-`--dry-run`, never call `sudo` (they print the exact command), and are
-idempotent. See [INSTALL.md](INSTALL.md).
+plan mode of `gpu` / `dotfiles` / `power`) never change anything. Commands
+that write follow **detect → explain → show the exact change → confirm →
+apply**, honour `--dry-run`, never call `sudo` (they print the exact
+command), and are idempotent. See [INSTALL.md](INSTALL.md).
+
+`desktop` sits on top of all of them as a pure orchestrator: it calls
+`check`/`deps`/`dotfiles`/`gpu`/`power`/`infinite-desktop`/`doctor` in
+sequence, each exactly as `install.sh <cmd>` would run it (including its own
+confirmations under `--apply`), and adds no detection or write logic of its
+own. `install/cmd/desktop.sh` stops the sequence on the first step that fails
+after `deps` (with `doctor` still run at the end as a read-only snapshot),
+and keeps `gpu --apply` / `power --apply` plan-only on a non-Gentoo host —
+the two steps that write real files under `/etc` are never applied for real
+off the Gentoo target.
 
 ## Hyprland configuration
 

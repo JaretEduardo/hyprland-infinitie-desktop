@@ -9,7 +9,7 @@ matter.
 ```
 
 This document covers the commands that exist today. It will grow as the
-remaining commands (`desktop`, `first-run`, `full`) land.
+remaining commands (`first-run`, `full`) land.
 
 ## Global options
 
@@ -120,3 +120,39 @@ which need no privilege and are linked by `dotfiles`, not written by `power`.
 Never calls `sudo` (prints the exact command if it can't write `/etc`
 itself), never restarts `systemd-logind` for you, backs up any pre-existing
 file it did not create, and is idempotent. See [POWER.md](POWER.md).
+
+### `desktop` — orchestrates everything above
+
+```
+./install.sh desktop              # plan: every step below in its own plan mode (read-only)
+./install.sh desktop --apply      # the real sequence — each step still confirms itself
+./install.sh --dry-run desktop --apply   # like --apply, but every step writes nothing
+```
+
+An orchestrator, not a reimplementation: `desktop` calls `check`, `deps`,
+`dotfiles`, `gpu`, `power`, `infinite-desktop` and `doctor` — in that order —
+exactly as if you ran each one yourself, including its own interactive
+confirmations under `--apply`. It adds no privileged action of its own: no
+`emerge`, no `eselect`, no hidden `sudo`, no `systemctl enable/start`, no
+`usermod`, no silent `/etc` write.
+
+Sequence and why: `check` (preflight) → `deps` (read-only; **stops before any
+write** if required packages are missing on Gentoo, so `--apply` never
+touches config on top of a broken dependency set) → `dotfiles` → `gpu` →
+`power` → `infinite-desktop` → `doctor` (this is also where NetworkManager /
+PipeWire-WirePlumber presence and the overall readiness summary are checked —
+already covered there, not duplicated here). If any step after `deps` fails,
+the sequence stops at that step — nothing after it runs — but `doctor` still
+runs at the end regardless, as a read-only snapshot of wherever things were
+left.
+
+**Not Gentoo (e.g. this repo developed on Fedora):** plan mode runs exactly
+the same. Under `--apply`, `gpu` and `power` — the two steps that write real
+files under `/etc` — stay plan-only even so; this repo's target is Gentoo,
+and a non-Gentoo host is never used to apply those changes for real.
+`dotfiles` and `infinite-desktop` (both user-space, under `$HOME`) still run
+for real under `--apply` on any distro.
+
+Idempotent the same way its steps already are: a second `--apply` run relinks
+nothing that's already linked, rewrites nothing that already matches, and
+creates no new backups — see each step's own section above.

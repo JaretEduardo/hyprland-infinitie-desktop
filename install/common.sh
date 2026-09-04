@@ -31,13 +31,14 @@ export INSTALL_DRY_RUN="${INSTALL_DRY_RUN:-}"
 export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 
 # Commands with a real implementation today (one script per name in install/cmd/).
-_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power"
+_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power desktop"
 # Commands recognised but not implemented yet (added in later stages).
-_CMD_PLANNED="desktop first-run full"
+_CMD_PLANNED="first-run full"
 # Of the implemented commands, those that honour --dry-run. 'check', 'deps' and
-# 'doctor' are read-only; 'gpu', 'dotfiles', 'infinite-desktop' and 'power'
-# show what they would do and write nothing under --dry-run.
-_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power"
+# 'doctor' are read-only; 'gpu', 'dotfiles', 'infinite-desktop', 'power' and
+# 'desktop' (which only orchestrates those) show what they would do and write
+# nothing under --dry-run.
+_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power desktop"
 
 common::usage() {
     cat <<'EOF'
@@ -57,9 +58,11 @@ Commands:
                       (evdev daemon + Hyprland keybinds, copied to ~/scripts)
   power               logind lid/power-key/idle-action policy (plan; --apply to write)
                       hypridle/hyprlock config itself is linked by `dotfiles`
+  desktop             Orchestrates check/deps/dotfiles/gpu/power/infinite-desktop/doctor
+                      (plan; --apply to run the real sequence). Reuses each of
+                      those commands as-is; adds no new privileged action.
 
 Planned (later stages, not implemented yet):
-  desktop             Link/configure Hyprland, Quickshell, hypridle, hyprlock
   first-run           Machine-local generation (monitor refresh, NVIDIA backend)
   full                Guided end-to-end orchestration
 

@@ -61,6 +61,10 @@ power | gui-apps/hyprlock      | hyproverlay | required    | screen locker
 power | app-misc/brightnessctl | guru        | required    | backlight control for the media keybinds
 power | media-sound/playerctl  | ::gentoo    | recommended | MPRIS media keys
 power | sys-power/powertop     | ::gentoo    | optional    | read-only power-draw diagnostics
+power | gui-apps/wev           | guru        | optional    | first-run only: print real XF86 keysyms (docs/FIRST-RUN.md), not a runtime dep of lua/laptop.lua
+
+# wpctl (used by lua/laptop.lua's volume/mute binds) is WirePlumber's own CLI
+# and ships inside media-video/wireplumber above — no separate atom.
 
 # ---- NVIDIA (compute / CUDA / OptiX; not the desktop GPU) -----------
 nvidia | x11-drivers/nvidia-drivers   | ::gentoo | required    | also ships nvidia-persistenced

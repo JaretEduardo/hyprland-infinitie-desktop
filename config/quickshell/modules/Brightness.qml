@@ -5,8 +5,15 @@
 // backlight device name is hardcoded: `brightnessctl -m` auto-detects the
 // right backlight class device, same principle as lib/hardware.sh.
 //
-// No polling: the initial value is queried once, and again only after this
-// widget itself changes it. https://quickshell.org/docs/v0.3.0/types/Quickshell.Io/Process/
+// No polling: the initial value is queried once, and again only after a
+// change — either this widget's own click/scroll handler, or an external one
+// (the XF86MonBrightness{Up,Down} keybinds in lua/laptop.lua) reported via
+// the "brightness" IPC target below, the same mechanism services/Frame.qml
+// already uses for Infinite Desktop. The IPC call only re-triggers this
+// existing query; it does not set brightness itself, so control logic still
+// lives in exactly one place (brightnessctl).
+// https://quickshell.org/docs/v0.3.0/types/Quickshell.Io/Process/
+// https://quickshell.org/docs/v0.3.0/types/Quickshell.Io/IpcHandler/
 
 import QtQuick
 import Quickshell.Io
@@ -18,6 +25,13 @@ Row {
     property int percent: -1
     readonly property bool available: percent >= 0
     visible: available
+
+    IpcHandler {
+        target: "brightness"
+        function refresh(): void {
+            query.running = true;
+        }
+    }
 
     Process {
         id: query

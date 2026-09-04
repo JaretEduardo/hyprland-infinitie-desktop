@@ -139,7 +139,7 @@ Wiki: `wiki.hypr.land/Configuring/Basics/Dispatchers`
 ### 3.2 The design response
 
 Every `hyprctl dispatch` call in the component is generated in **one file**,
-`scripts/hypr_ipc.py`. All the other scripts import it instead of assembling
+`scripts/infinite-desktop/hypr_ipc.py`. All the other scripts import it instead of assembling
 command strings themselves. This API is `-git` and has changed more than once in
 a matter of weeks, so when it changes again only `hypr_ipc.py` needs editing.
 
@@ -193,7 +193,7 @@ hl.dsp.window.resize({ window = "address:ADDR", x = W, y = H, relative = false }
 ```
 
 These are the current bodies of `move_window_exact_lua()` and
-`resize_window_exact_lua()` in `scripts/hypr_ipc.py`. They replace the old
+`resize_window_exact_lua()` in `scripts/infinite-desktop/hypr_ipc.py`. They replace the old
 positional dispatchers `movewindowpixel exact X Y,address:ADDR` and
 `resizewindowpixel exact W H,address:ADDR`.
 
@@ -205,8 +205,9 @@ names must be re-confirmed** before trusting the panning feature. Everything in
 4.1 is low-risk (documented on the wiki); everything in 4.2 is the part most
 likely to have drifted.
 
-If the field names changed, **only two functions in `scripts/hypr_ipc.py` need
-editing** — `move_window_exact_lua()` and `resize_window_exact_lua()` — because
+If the field names changed, **only two functions in
+`scripts/infinite-desktop/hypr_ipc.py` need editing** —
+`move_window_exact_lua()` and `resize_window_exact_lua()` — because
 every other script routes exact moves through them.
 
 ---
@@ -216,7 +217,7 @@ every other script routes exact moves through them.
 A diagnostic/probing script. Run it once, with **a floating window focused**:
 
 ```bash
-bash ~/scripts/discover_hyprland_api.sh      # or scripts/discover_hyprland_api.sh from the repo
+bash ~/scripts/discover_hyprland_api.sh      # or scripts/infinite-desktop/discover_hyprland_api.sh from the repo
 ```
 
 > **Warning:** this is not read-only. During its probes it actually moves the
@@ -258,11 +259,12 @@ Once the working spelling is known, edit only the two functions named in 4.3.
   ```
 
   This was wrong: Hyprland rejects `coords`/`mode` (section 4.2). The tracked
-  `scripts/hypr_ipc.py` already carries the corrected form. The bundle's
-  contents remain recoverable from git history (`git show 7436233`).
+  `scripts/infinite-desktop/hypr_ipc.py` already carries the corrected form. The
+  bundle's contents remain recoverable from git history (`git show 7436233`).
 
-- `scripts/infinite-desktop.sh` was a **legacy launcher**, removed in the same
-  cleanup commit (recoverable from git history). It detected a keyboard and a
+- `scripts/infinite-desktop.sh` — a single file, not to be confused with the
+  current `scripts/infinite-desktop/` directory — was a **legacy launcher**,
+  removed in the same cleanup commit (recoverable from git history). It detected a keyboard and a
   mouse by `/sys/class/input/*/device/name` string matching and then ran
   `infinite_desktop_core.py "$KBD_DEV" "$MOUSE_DEV" "$SPEED"` — the old 3-argument
   convention. The current core auto-detects devices and reads only a speed
@@ -278,13 +280,18 @@ Once the working spelling is known, edit only the two functions named in 4.3.
 
 ## 7. Files
 
-| File | Role |
+All of these live in `scripts/infinite-desktop/` in the repository. The installer
+copies them **flat** into `~/scripts/`, which is why the Hyprland binds and the
+autostart line refer to `~/scripts/<name>` and the scripts locate each other with
+`os.path.dirname(__file__)` rather than a fixed path.
+
+| File (under `scripts/infinite-desktop/`) | Role |
 | --- | --- |
-| `scripts/infinite_desktop_core.py` | evdev daemon: panning, edge-push drag, keyboard move, Quickshell hint |
-| `scripts/hypr_ipc.py` | the only place `hyprctl` calls are built; Hyprland-version compat layer |
-| `scripts/navigate_windows.py` | `SUPER + arrows` — focus/center the next window (floating vs master vs dwindle) |
-| `scripts/move_window.py` | `SUPER + SHIFT + arrows` — move the active floating window, push others at the edge |
-| `scripts/move_window_tiled.py` | `SUPER + ALT + arrows` — move a tiled window (delegates to `move_window.py` when floating) |
-| `scripts/resize_window.py` | `SUPER + CTRL + arrows` — resize the active floating window |
-| `scripts/floating_tile_toggle.py` | `SUPER + D` — toggle floating/tiled for the whole workspace, remembering geometry |
-| `scripts/discover_hyprland_api.sh` | diagnostic/probing script for the `hl.dsp.window.*` API — moves/resizes the focused window (section 5) |
+| `infinite_desktop_core.py` | evdev daemon: panning, edge-push drag, keyboard move, Quickshell hint |
+| `hypr_ipc.py` | the only place `hyprctl` calls are built; Hyprland-version compat layer |
+| `navigate_windows.py` | `SUPER + arrows` — focus/center the next window (floating vs master vs dwindle) |
+| `move_window.py` | `SUPER + SHIFT + arrows` — move the active floating window, push others at the edge |
+| `move_window_tiled.py` | `SUPER + ALT + arrows` — move a tiled window (delegates to `move_window.py` when floating) |
+| `resize_window.py` | `SUPER + CTRL + arrows` — resize the active floating window |
+| `floating_tile_toggle.py` | `SUPER + D` — toggle floating/tiled for the whole workspace, remembering geometry |
+| `discover_hyprland_api.sh` | diagnostic/probing script for the `hl.dsp.window.*` API — moves/resizes the focused window (section 5) |

@@ -72,10 +72,10 @@ setup_input_group() {
 # 3. Copy the Infinite Desktop scripts from this repository checkout
 
 install_scripts() {
-    local src="${REPO_DIR}/scripts"
+    local src="${REPO_DIR}/scripts/infinite-desktop"
 
     if [ ! -d "${src}" ]; then
-        err "Could not find the 'scripts' folder in this repository (${src})."
+        err "Could not find the Infinite Desktop scripts in this repository (${src})."
         err "This installer must be executed from a complete repository checkout."
         exit 1
     fi
@@ -83,7 +83,7 @@ install_scripts() {
     log "Installing scripts from ${src} into ${SCRIPTS_DEST} ..."
     mkdir -p "${SCRIPTS_DEST}"
 
-    # Copy every .py and .sh script that lives directly in scripts/
+    # Copy every .py and .sh script that lives directly in scripts/infinite-desktop/
     find "${src}" -maxdepth 1 -type f \( -name "*.py" -o -name "*.sh" \) -print0 |
         while IFS= read -r -d '' f; do
             cp -f "$f" "${SCRIPTS_DEST}/"

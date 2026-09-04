@@ -24,6 +24,9 @@ bin/
 config/
   gpu/                         modprobe.d + udev templates for the hybrid GPU
   hypr/                        modular Hyprland Lua config (see below)
+  hypridle/  hyprlock/         idle ladder + lock screen config (see POWER.md)
+  logind/                      logind.conf.d drop-in for lid/power-key/idle-action
+  quickshell/                  modular Quickshell bar
 scripts/
   infinite-desktop/            the Infinite Desktop component (evdev daemon + IPC)
 docs/                          per-topic documentation
@@ -56,8 +59,8 @@ pcall-free.
 | `input.lua` | keyboard + touchpad base, 3-finger workspace swipe |
 | `appearance.lua` | minimal gaps / borders / layout; Quickshell owns the visuals later |
 | `bindings.lua` | basic desktop keybinds only |
-| `laptop.lua` | seam — XF86 media/brightness binds land here later |
-| `autostart.lua` | environment import + polkit agent only |
+| `laptop.lua` | XF86 volume/mic/brightness/media keybinds (`wpctl`/`brightnessctl`/`playerctl`) |
+| `autostart.lua` | environment import, polkit agent, Quickshell, hypridle |
 | `infinite-desktop.lua` | Infinite Desktop autostart + keybinds; the only seam to that component. Loaded last; `hl.unbind`s + rebinds `SUPER + arrows`. |
 
 ### Machine-local files
@@ -88,6 +91,16 @@ AMD iGPU is the compositor GPU; the NVIDIA dGPU is on-demand (render offload via
 `bin/nvidia-offload`, or CUDA directly). RTD3 power management, the ECO/COMPUTE
 policy (`bin/nvidia-compute-mode`), and the permanent config are covered in
 [HYBRID-GPU.md](HYBRID-GPU.md).
+
+## Power: idle, lock, suspend, lid
+
+Every power event has exactly one owner — `hypridle` (idle timers, locking,
+DPMS, suspend-by-inactivity) or `logind` (lid switch, power key, idle-action),
+never both. `install.sh power` writes the one file that needs root
+(`config/logind/50-hyprland-infinite-desktop.conf`, a `logind.conf.d`
+drop-in); `hypridle.conf` / `hyprlock.conf` need no privilege and are linked
+by `dotfiles` like every other managed config. Full matrix and reasoning in
+[POWER.md](POWER.md).
 
 ## Infinite Desktop
 

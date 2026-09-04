@@ -50,6 +50,39 @@ hardware.
 (`Quickshell.Services.Pipewire`), so a volume or mute change from the
 keyboard shows up in the bar with no extra step to verify.
 
+## Lid, lock, suspend (docs/POWER.md)
+
+None of this can be validated from a machine without Hyprland/`systemd-logind`
+actually running the session (this repo was developed on Fedora without
+Hyprland running), so it needs a real pass on Gentoo:
+
+1. `hyprctl devices` — confirm the lid switch is listed (name expected
+   around `Lid Switch`; `config/logind/50-hyprland-infinite-desktop.conf`
+   does not itself depend on the exact name, since logind — not a Hyprland
+   `switch:` bind — owns the lid, but it's worth confirming the device is
+   seen at all).
+2. Close the lid **on battery**, no external monitor connected → the laptop
+   should suspend (`HandleLidSwitch=suspend`).
+3. Close the lid **on AC power**, no external monitor connected → the laptop
+   should **also** suspend (`HandleLidSwitchExternalPower=suspend`). This is
+   the case a plain `HandleLidSwitch=` alone would miss, since logind checks
+   external-power before falling back to it — worth checking on its own, not
+   just assuming it behaves like case 2.
+4. Connect an external monitor (either power source), close the lid → it
+   should **not** suspend (`HandleLidSwitchDocked=ignore`, since logind then
+   sees more than one display connected — checked before either of the two
+   cases above). Keep working on the external monitor; reopening the lid
+   should just make the internal panel available again, with no extra
+   suspend/resume cycle.
+5. Press the power button once, briefly → the session should lock
+   (`HandlePowerKey=lock`), not power off.
+6. Let the machine sit idle and confirm the ladder in order: dim (~2.5 min) →
+   lock (~5 min) → DPMS off (~5.5 min) → suspend (~30 min). Wake it and
+   confirm the screen locks exactly once and DPMS comes back exactly once.
+7. Run `nvidia-compute-mode status` before and after a suspend/resume cycle,
+   in both `eco` and (if a real `compute_backend` is set up) `compute` — the
+   reported policy must be identical before and after.
+
 ## Brightness reflected in the bar
 
 `modules/Brightness.qml` re-queries `brightnessctl` after the

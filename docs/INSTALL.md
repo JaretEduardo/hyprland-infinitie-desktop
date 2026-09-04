@@ -9,7 +9,7 @@ matter.
 ```
 
 This document covers the commands that exist today. It will grow as the
-remaining commands (`desktop`, `power`, `first-run`, `full`) land.
+remaining commands (`desktop`, `first-run`, `full`) land.
 
 ## Global options
 
@@ -103,3 +103,20 @@ declared in `config/hypr/lua/infinite-desktop.lua`; link them in with
 `./install.sh dotfiles --apply`. `./install-hyprland-infinite-desktop.sh` is a
 compatibility wrapper for this command. See
 [INFINITE-DESKTOP.md](INFINITE-DESKTOP.md).
+
+### `power` — logind lid / power-key / idle-action policy
+
+```
+./install.sh power             # detect + explain + show the proposed change (read-only)
+./install.sh power --apply     # apply, after confirmation, backing up anything replaced
+```
+
+Writes the single `/etc/systemd/logind.conf.d/` drop-in this project needs
+root for (`HandleLidSwitch=suspend`, `HandleLidSwitchDocked=ignore`,
+`HandleLidSwitchExternalPower=suspend`, `HandlePowerKey=lock`,
+`IdleAction=ignore`) — the rest of the power ownership matrix (idle timers,
+locking, DPMS, suspend-by-inactivity) is `hypridle.conf` / `hyprlock.conf`,
+which need no privilege and are linked by `dotfiles`, not written by `power`.
+Never calls `sudo` (prints the exact command if it can't write `/etc`
+itself), never restarts `systemd-logind` for you, backs up any pre-existing
+file it did not create, and is idempotent. See [POWER.md](POWER.md).

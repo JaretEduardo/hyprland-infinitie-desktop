@@ -1,8 +1,9 @@
 -- lua/autostart.lua — only what is genuinely needed for a usable session now.
 -- Wiki: Configuring/Basics/Autostart
 --
--- NOT started here (added when their configs exist / by later stages):
---   hypridle, hyprlock, hyprpaper, any NVIDIA / GPU service.
+-- NOT started here: hyprlock (only ever launched by hypridle's own
+-- lock_cmd — see config/hypridle/hypridle.conf and docs/POWER.md), hyprpaper,
+-- any NVIDIA / GPU service.
 
 hl.on("hyprland.start", function()
     -- Make the Wayland session visible to the systemd user session and D-Bus
@@ -20,4 +21,11 @@ hl.on("hyprland.start", function()
     -- itself) or a stray extra run can never spawn a second bar instance.
     -- Harmless if `qs` is not installed yet.
     hl.exec_cmd("command -v qs >/dev/null 2>&1 && (pgrep -x qs >/dev/null || qs) || true")
+
+    -- hypridle: the sole owner of idle timers / locking / DPMS / suspend-by-
+    -- inactivity (docs/POWER.md). Guarded the same way as qs above, so a
+    -- config reload (which re-fires this module's load, though not this
+    -- hyprland.start event itself) can never spawn a second instance.
+    -- Harmless if hypridle is not installed yet.
+    hl.exec_cmd("command -v hypridle >/dev/null 2>&1 && (pgrep -x hypridle >/dev/null || hypridle) || true")
 end)

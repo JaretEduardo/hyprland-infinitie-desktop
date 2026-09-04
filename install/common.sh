@@ -31,13 +31,13 @@ export INSTALL_DRY_RUN="${INSTALL_DRY_RUN:-}"
 export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 
 # Commands with a real implementation today (one script per name in install/cmd/).
-_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop"
+_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power"
 # Commands recognised but not implemented yet (added in later stages).
-_CMD_PLANNED="desktop power first-run full"
+_CMD_PLANNED="desktop first-run full"
 # Of the implemented commands, those that honour --dry-run. 'check', 'deps' and
-# 'doctor' are read-only; 'gpu', 'dotfiles' and 'infinite-desktop' show what
-# they would do and write nothing under --dry-run.
-_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop"
+# 'doctor' are read-only; 'gpu', 'dotfiles', 'infinite-desktop' and 'power'
+# show what they would do and write nothing under --dry-run.
+_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power"
 
 common::usage() {
     cat <<'EOF'
@@ -55,10 +55,11 @@ Commands:
   dotfiles            Link repo config files into ~/.config (plan; --apply to link)
   infinite-desktop    Install the Infinite Desktop component
                       (evdev daemon + Hyprland keybinds, copied to ~/scripts)
+  power               logind lid/power-key/idle-action policy (plan; --apply to write)
+                      hypridle/hyprlock config itself is linked by `dotfiles`
 
 Planned (later stages, not implemented yet):
   desktop             Link/configure Hyprland, Quickshell, hypridle, hyprlock
-  power               hypridle / hyprlock / logind power ownership
   first-run           Machine-local generation (monitor refresh, NVIDIA backend)
   full                Guided end-to-end orchestration
 

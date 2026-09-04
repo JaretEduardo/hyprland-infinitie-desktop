@@ -24,8 +24,11 @@ config | config/hypr/lua/laptop.lua            | hypr/lua/laptop.lua
 config | config/hypr/lua/autostart.lua         | hypr/lua/autostart.lua
 config | config/hypr/lua/infinite-desktop.lua  | hypr/lua/infinite-desktop.lua
 
-# hypridle and hyprlock configs are added here by later stages.
-#
+# hypridle / hyprlock search $XDG_CONFIG_HOME/hypr/ themselves, so these live
+# there too, per-file like everything else above (see docs/POWER.md).
+config | config/hypridle/hypridle.conf         | hypr/hypridle.conf
+config | config/hyprlock/hyprlock.conf         | hypr/hyprlock.conf
+
 # The Infinite Desktop autostart + keybinds are declared in
 # config/hypr/lua/infinite-desktop.lua (linked above). `install.sh
 # infinite-desktop` installs only the runtime scripts and no longer edits

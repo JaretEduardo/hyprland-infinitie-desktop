@@ -92,7 +92,6 @@ install_scripts() {
 
     log "Applying execute permissions..."
     chmod +x \
-        "${SCRIPTS_DEST}/infinite-desktop.sh" \
         "${SCRIPTS_DEST}/floating_tile_toggle.py" \
         "${SCRIPTS_DEST}/move_window_tiled.py" \
         "${SCRIPTS_DEST}/navigate_windows.py" \

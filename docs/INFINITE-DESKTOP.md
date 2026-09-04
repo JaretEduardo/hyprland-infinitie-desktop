@@ -245,10 +245,11 @@ Once the working spelling is known, edit only the two functions named in 4.3.
 
 ## 6. History and obsolete notes
 
-- `scripts/files.zip` is an **older snapshot bundle** ("Add files via upload",
-  commit `7436233`). Every script inside it is identical to, older than, or a
-  superseded guess relative to the tracked `scripts/`. Its `hypr_ipc.py` and its
-  `LEEME.md` still describe the exact-move syntax as an **unconfirmed guess**:
+- `scripts/files.zip` was an **older snapshot bundle** ("Add files via upload",
+  commit `7436233`), removed in the cleanup commit that followed this document.
+  Every script inside it was identical to, older than, or a superseded guess
+  relative to the tracked `scripts/`. Its `hypr_ipc.py` and its `LEEME.md` still
+  described the exact-move syntax as an **unconfirmed guess**:
 
   ```python
   # OBSOLETE — do not use
@@ -257,21 +258,21 @@ Once the working spelling is known, edit only the two functions named in 4.3.
   ```
 
   This was wrong: Hyprland rejects `coords`/`mode` (section 4.2). The tracked
-  `scripts/hypr_ipc.py` already carries the corrected form. `files.zip` is kept
-  only until this document is committed and is then removed.
+  `scripts/hypr_ipc.py` already carries the corrected form. The bundle's
+  contents remain recoverable from git history (`git show 7436233`).
 
-- `scripts/infinite-desktop.sh` is a **legacy launcher**. It detects a keyboard
-  and a mouse by `/sys/class/input/*/device/name` string matching and then runs
+- `scripts/infinite-desktop.sh` was a **legacy launcher**, removed in the same
+  cleanup commit (recoverable from git history). It detected a keyboard and a
+  mouse by `/sys/class/input/*/device/name` string matching and then ran
   `infinite_desktop_core.py "$KBD_DEV" "$MOUSE_DEV" "$SPEED"` — the old 3-argument
   convention. The current core auto-detects devices and reads only a speed
   argument, so passing a device path as `argv[1]` would raise `ValueError`.
-  Nothing calls this script (autostart runs the core directly). It is slated for
-  removal.
+  Nothing called it (autostart runs the core directly).
 
 - The detailed rationale in this document was reconstructed from the
-  `LEEME.md` inside `files.zip`, the docstring of `scripts/hypr_ipc.py` as it
-  stood at commit `7436233` (later trimmed by `c2174db` and `de31547`), and the
-  current implementation.
+  `LEEME.md` inside `scripts/files.zip` and the docstring of
+  `scripts/hypr_ipc.py`, both as they stood at commit `7436233` (the docstring
+  was later trimmed by `c2174db` and `de31547`), plus the current implementation.
 
 ---
 
@@ -287,4 +288,3 @@ Once the working spelling is known, edit only the two functions named in 4.3.
 | `scripts/resize_window.py` | `SUPER + CTRL + arrows` — resize the active floating window |
 | `scripts/floating_tile_toggle.py` | `SUPER + D` — toggle floating/tiled for the whole workspace, remembering geometry |
 | `scripts/discover_hyprland_api.sh` | diagnostic/probing script for the `hl.dsp.window.*` API — moves/resizes the focused window (section 5) |
-| `scripts/infinite-desktop.sh` | legacy launcher, superseded — see section 6 |

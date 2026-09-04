@@ -7,17 +7,27 @@
 #   source : path relative to the repo root (INSTALL_REPO_DIR)
 #   dest   : path relative to the chosen base. No "..", no absolute paths.
 #
-# Per-entry linking is deliberate: ~/.config/hypr/ stays a real directory, so a
-# machine-local file the installer generates later — e.g.
-# ~/.config/hypr/monitors.local.lua — lives beside the symlinks, is never in
-# git, and is never touched by `install.sh dotfiles`.
+# Per-entry linking is deliberate: ~/.config/hypr/ and ~/.config/hypr/lua/ stay
+# real directories, so machine-local files generated later —
+# ~/.config/hypr/monitors.local.lua, ~/.config/hypr/gpu.local.lua — live beside
+# the symlinks, are never in git, and are never touched by `install.sh dotfiles`.
+
+# ---- Hyprland (modular Lua config; targets Hyprland >= 0.55) --------------
+config | config/hypr/hyprland.lua              | hypr/hyprland.lua
+config | config/hypr/lua/util.lua              | hypr/lua/util.lua
+config | config/hypr/lua/env.lua               | hypr/lua/env.lua
+config | config/hypr/lua/monitors.lua          | hypr/lua/monitors.lua
+config | config/hypr/lua/input.lua             | hypr/lua/input.lua
+config | config/hypr/lua/appearance.lua        | hypr/lua/appearance.lua
+config | config/hypr/lua/bindings.lua          | hypr/lua/bindings.lua
+config | config/hypr/lua/laptop.lua            | hypr/lua/laptop.lua
+config | config/hypr/lua/autostart.lua         | hypr/lua/autostart.lua
+config | config/hypr/lua/infinite-desktop.lua  | hypr/lua/infinite-desktop.lua
+
+# Quickshell, hypridle and hyprlock configs are added here by later stages.
 #
-# No entries yet. The desktop / power stages add the Hyprland, Quickshell,
-# hypridle and hyprlock configs here as they create them.
-#
-# Example (commented out — the source does not exist yet):
-# config | config/hypr/hyprland.lua        | hypr/hyprland.lua
-# config | config/hypr/modules/infinite-desktop.lua | hypr/modules/infinite-desktop.lua
-# config | config/quickshell/shell.qml     | quickshell/shell.qml
-# config | config/hypr/hypridle.conf       | hypr/hypridle.conf
-# config | config/hypr/hyprlock.conf       | hypr/hyprlock.conf
+# NOTE: the legacy `install.sh infinite-desktop` / patch_hyprland.py still
+# APPENDS to ~/.config/hypr/hyprland.lua. If that file is a symlink to the repo
+# copy, the patch would edit the repo. Stage 16 retires patch_hyprland.py and
+# moves the Infinite Desktop wiring into config/hypr/lua/infinite-desktop.lua.
+# Until then, do not run both `dotfiles --apply` and the legacy installer.

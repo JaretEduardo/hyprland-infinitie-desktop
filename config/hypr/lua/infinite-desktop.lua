@@ -1,0 +1,22 @@
+-- lua/infinite-desktop.lua — Infinite Desktop integration. SEAM.
+--
+-- Intentionally empty in this stage. Stage 16 wires the Infinite Desktop
+-- component in here and retires the legacy patch_hyprland.py mechanism:
+--
+--   * autostart the evdev daemon
+--       hl.on("hyprland.start", function()
+--           hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6 > /tmp/infinite-desktop.log 2>&1")
+--       end)
+--
+--   * its keybinds
+--       SUPER + arrows            navigate / centre the next window   (replaces
+--                                 the plain "move focus" binds in lua/bindings.lua)
+--       SUPER + SHIFT + arrows    move the active floating window
+--       SUPER + ALT + arrows      move a tiled window
+--       SUPER + CTRL + arrows     resize the active window
+--       SUPER + D                 toggle floating / tiled for the workspace
+--       SUPER + Z / SUPER + X     previous / next workspace
+--
+--   All dispatch is routed through ~/scripts/hypr_ipc.py.
+--
+-- See docs/INFINITE-DESKTOP.md.

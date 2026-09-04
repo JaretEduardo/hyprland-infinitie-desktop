@@ -1,0 +1,23 @@
+# Dotfiles managed by this repo — one symlink PER ENTRY, never a whole directory.
+#
+#   base | source | dest | note
+#
+#   base   : config  -> dest is relative to $XDG_CONFIG_HOME (default ~/.config)
+#            home    -> dest is relative to $HOME
+#   source : path relative to the repo root (INSTALL_REPO_DIR)
+#   dest   : path relative to the chosen base. No "..", no absolute paths.
+#
+# Per-entry linking is deliberate: ~/.config/hypr/ stays a real directory, so a
+# machine-local file the installer generates later — e.g.
+# ~/.config/hypr/monitors.local.lua — lives beside the symlinks, is never in
+# git, and is never touched by `install.sh dotfiles`.
+#
+# No entries yet. The desktop / power stages add the Hyprland, Quickshell,
+# hypridle and hyprlock configs here as they create them.
+#
+# Example (commented out — the source does not exist yet):
+# config | config/hypr/hyprland.lua        | hypr/hyprland.lua
+# config | config/hypr/modules/infinite-desktop.lua | hypr/modules/infinite-desktop.lua
+# config | config/quickshell/shell.qml     | quickshell/shell.qml
+# config | config/hypr/hypridle.conf       | hypr/hypridle.conf
+# config | config/hypr/hyprlock.conf       | hypr/hyprlock.conf

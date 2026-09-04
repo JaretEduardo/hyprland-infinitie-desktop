@@ -31,13 +31,14 @@ export INSTALL_DRY_RUN="${INSTALL_DRY_RUN:-}"
 export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 
 # Commands with a real implementation today (one script per name in install/cmd/).
-_CMD_IMPLEMENTED="check deps gpu doctor infinite-desktop"
+_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop"
 # Commands recognised but not implemented yet (added in later stages).
 _CMD_PLANNED="desktop power first-run full"
 # Of the implemented commands, those that actually honour --dry-run. 'check',
-# 'deps' and 'doctor' are read-only; 'gpu' (without --apply) is read-only too.
-# The legacy infinite-desktop command does not, so --dry-run refuses for it.
-_CMD_DRYRUN_OK="check deps gpu doctor"
+# 'deps' and 'doctor' are read-only; 'gpu' and 'dotfiles' (without --apply) are
+# read-only too, and honour --dry-run with --apply. The legacy infinite-desktop
+# command does not, so --dry-run refuses for it.
+_CMD_DRYRUN_OK="check deps gpu doctor dotfiles"
 
 common::usage() {
     cat <<'EOF'
@@ -52,6 +53,7 @@ Commands:
   deps                Detect missing Gentoo packages/overlays, print the commands
   gpu                 Hybrid AMD/NVIDIA + RTD3 config (plan; --apply to write)
   doctor              Read-only diagnostics ([OK]/[WARN]/[ERROR]/[INFO])
+  dotfiles            Link repo config files into ~/.config (plan; --apply to link)
   infinite-desktop    Install the Infinite Desktop component
                       (evdev daemon + Hyprland keybinds, copied to ~/scripts)
 

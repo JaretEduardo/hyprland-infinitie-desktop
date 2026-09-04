@@ -4,8 +4,10 @@
 #
 set -euo pipefail
 
-REPO_URL="https://github.com/sarodscommits/hyprland-infinitie-desktop-v2"
-REPO_TARBALL="https://codeload.github.com/sarodscommits/hyprland-infinitie-desktop-v2/tar.gz/refs/heads/main"
+# Absolute path to the repository this script lives in, resolved from the
+# script's own location (not the caller's working directory), so the installer
+# works when run as ./install-... , /full/path/install-... or from any cwd.
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DEST="${HOME}/scripts"
 HYPR_LUA="${HOME}/.config/hypr/hyprland.lua"
 TMP_DIR="$(mktemp -d)"
@@ -67,29 +69,22 @@ setup_input_group() {
 }
 
 
-# 3. Download the repo and copy the shtty scripts
+# 3. Copy the Infinite Desktop scripts from this repository checkout
 
-fetch_and_install_scripts() {
-    log "Downloading the repository..."
-    if ! curl -fsSL -o "${TMP_DIR}/repo.tar.gz" "${REPO_TARBALL}"; then
-        err "Could not download the repo from ${REPO_TARBALL}"
-        err "Check your connection or download it manually: ${REPO_URL}"
+install_scripts() {
+    local src="${REPO_DIR}/scripts"
+
+    if [ ! -d "${src}" ]; then
+        err "Could not find the 'scripts' folder in this repository (${src})."
+        err "This installer must be executed from a complete repository checkout."
         exit 1
     fi
 
-    mkdir -p "${TMP_DIR}/repo"
-    tar -xzf "${TMP_DIR}/repo.tar.gz" -C "${TMP_DIR}/repo" --strip-components=1
-
-    if [ ! -d "${TMP_DIR}/repo/scripts" ]; then
-        err "Could not find the 'scripts' folder inside the downloaded repo."
-        exit 1
-    fi
-
-    log "Creating ${SCRIPTS_DEST} and copying files..."
+    log "Installing scripts from ${src} into ${SCRIPTS_DEST} ..."
     mkdir -p "${SCRIPTS_DEST}"
 
-    # Copy all .py and .sh files for nothing
-    find "${TMP_DIR}/repo/scripts" -maxdepth 1 -type f \( -name "*.py" -o -name "*.sh" \) -print0 |
+    # Copy every .py and .sh script that lives directly in scripts/
+    find "${src}" -maxdepth 1 -type f \( -name "*.py" -o -name "*.sh" \) -print0 |
         while IFS= read -r -d '' f; do
             cp -f "$f" "${SCRIPTS_DEST}/"
             ok "Copied: $(basename "$f")"
@@ -340,12 +335,12 @@ PYEOF
 NEED_RELOGIN=0
 
 echo -e "${C_BOLD}hyprland-infinite-desktop-v2 installer${C_RESET}"
-echo "Repo: ${REPO_URL}"
+echo "Source: ${REPO_DIR}"
 echo ""
 
 install_packages
 setup_input_group
-fetch_and_install_scripts
+install_scripts
 write_patch_script
 patch_hyprland_config
 

@@ -49,18 +49,23 @@ N_OK=0; N_LINK=0; N_SKIP=0; N_CONFLICT=0
 # _dest_root <base>
 _dest_root() { case "$1" in config) printf '%s' "$CONFIG_HOME" ;; home) printf '%s' "$HOME_ROOT" ;; *) return 1 ;; esac; }
 
-# _safe <path> <allowed-root> : 0 if <path>'s location stays inside <root>
+# _safe <path> <allowed-root> : 0 if <path> lexically stays inside <root>
+#
+# A pure string check, deliberately not resolving the filesystem: the caller
+# already rejects ".." and absolute paths in the manifest's src/dest fields
+# before building <path> as "<root>/<dest>", so <path> cannot escape <root> by
+# construction. This is a second, independent check of that same property
+# (defense in depth), repeating the ".." rejection rather than trusting the
+# caller alone. Trying to resolve real/existing ancestors instead (as an
+# earlier version of this function did) breaks on a genuinely fresh $HOME —
+# e.g. first-run on Gentoo before ~/.config exists — because walking up to the
+# nearest *existing* directory can land above <root> itself and be rejected.
 _safe() {
-    local p="$1" root="$2" dir
-    case "$p" in *../*|*/..|..) return 1 ;; esac
-    dir="$(cd "$(dirname "$p")" 2>/dev/null && pwd || true)"
-    # parent may not exist yet: walk up to the nearest existing ancestor
-    if [ -z "$dir" ]; then
-        dir="$p"
-        while [ ! -d "$dir" ] && [ "$dir" != "/" ]; do dir="$(dirname "$dir")"; done
-        dir="$(cd "$dir" 2>/dev/null && pwd || echo /)"
-    fi
-    case "$dir/" in "$root"/*) return 0 ;; *) return 1 ;; esac
+    case "$1" in
+        *..*) return 1 ;;
+        "$2"/*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 _would() { printf '  %s[dry-run]%s %s\n' "${_C_DIM:-}" "${_C_RESET:-}" "$*"; }
@@ -115,7 +120,7 @@ while IFS='|' read -r base src dest note; do
 
     droot="$(_dest_root "$base")" || { log::error "entry $entries: bad base '$base'"; N_CONFLICT=$((N_CONFLICT+1)); continue; }
     case "$src" in /*|*..*) log::error "entry $entries: source must be a relative in-repo path"; N_CONFLICT=$((N_CONFLICT+1)); continue ;; esac
-    case "$dest" in /*) log::error "entry $entries: dest must be relative"; N_CONFLICT=$((N_CONFLICT+1)); continue ;; esac
+    case "$dest" in /*|*..*) log::error "entry $entries: dest must be a relative path with no .."; N_CONFLICT=$((N_CONFLICT+1)); continue ;; esac
     abs_src="$SRC_ROOT/$src"
     abs_dest="$droot/$dest"
 

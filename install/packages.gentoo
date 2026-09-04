@@ -1,0 +1,93 @@
+# Gentoo package catalogue for this workstation.
+#
+#   group | atom (category/name) | repo | tier | note
+#
+# repo   : ::gentoo  = official tree
+#          hyproverlay / guru = overlay that must be enabled first (see below)
+# tier   : required | recommended | optional
+#
+# Atom names verified against the official tree, ::guru and ::hyproverlay
+# (2026-09). No versions are pinned. This file is data only — `install.sh deps`
+# reports on it and prints commands; it never runs emerge.
+#
+# Overlays used here:
+#   hyproverlay  https://codeberg.org/hyproverlay/hyproverlay
+#                Hyprland stack (fast-moving; recommended by the Gentoo wiki)
+#     enable:  eselect repository enable hyproverlay && emaint sync -r hyproverlay
+#     keywords: echo '*/*::hyproverlay' > /etc/portage/package.accept_keywords/hyproverlay
+#   guru         https://github.com/gentoo/guru  (community overlay)
+#                Quickshell, brightnessctl, wev, wlr-randr
+#     enable:  eselect repository enable guru && emaint sync -r guru
+#     keywords: per-package ~amd64 in /etc/portage/package.accept_keywords/
+
+# ---- base / common --------------------------------------------------------
+base | app-shells/bash                | ::gentoo    | required    |
+base | app-misc/jq                    | ::gentoo    | required    | used by the Infinite Desktop scripts
+base | dev-vcs/git                    | ::gentoo    | required    |
+base | dev-python/evdev               | ::gentoo    | required    | Infinite Desktop evdev daemon (python-evdev)
+base | sys-apps/pciutils              | ::gentoo    | required    | lspci, used by install.sh check/doctor
+base | sys-process/procps             | ::gentoo    | required    | ps, used by hardware detection
+base | app-eselect/eselect-repository | ::gentoo    | required    | needed to enable the overlays below
+base | app-portage/cpuid2cpuflags     | ::gentoo    | recommended | derive CPU_FLAGS_X86 for make.conf
+
+# ---- Hyprland ------------------------------------------------------------
+hyprland | gui-wm/hyprland                      | hyproverlay | required    |
+hyprland | gui-libs/xdg-desktop-portal-hyprland | hyproverlay | required    | screenshare / pickers under Hyprland
+hyprland | sys-apps/xdg-desktop-portal          | ::gentoo    | required    | portal frontend
+hyprland | sys-apps/xdg-desktop-portal-gtk      | ::gentoo    | recommended | GTK file-chooser backend
+hyprland | sys-auth/polkit                      | ::gentoo    | required    | privilege prompts
+hyprland | gui-apps/foot                        | ::gentoo    | recommended | Wayland-native terminal (swap for your own)
+hyprland | gui-apps/hyprpaper                   | hyproverlay | optional    | wallpaper daemon
+hyprland | gui-apps/hyprpicker                  | hyproverlay | optional    | colour picker
+hyprland | gui-apps/grim                        | ::gentoo    | optional    | screenshots
+hyprland | gui-apps/slurp                       | ::gentoo    | optional    | region select for grim
+
+# ---- Quickshell (this project uses Quickshell, not Waybar) ---------------
+quickshell | gui-apps/quickshell | guru | required | the bar / shell
+
+# ---- audio (PipeWire) ---------------------------------------------------
+audio | media-video/pipewire    | ::gentoo | required    | enable USE for pipewire-pulse / alsa-plugin
+audio | media-video/wireplumber | ::gentoo | required    | PipeWire session manager
+
+# ---- network ----------------------------------------------------------
+network | net-misc/networkmanager     | ::gentoo | required    |
+network | sys-kernel/linux-firmware   | ::gentoo | required    | MediaTek MT7921 Wi-Fi firmware (mt7921e)
+network | net-wireless/wireless-regdb | ::gentoo | recommended | Wi-Fi regulatory database
+network | net-wireless/iw             | ::gentoo | optional    | Wi-Fi debugging
+
+# ---- laptop / power / idle -------------------------------------------
+power | gui-apps/hypridle      | hyproverlay | required    | idle -> dim / lock / dpms / suspend
+power | gui-apps/hyprlock      | hyproverlay | required    | screen locker
+power | app-misc/brightnessctl | guru        | required    | backlight control for the media keybinds
+power | media-sound/playerctl  | ::gentoo    | recommended | MPRIS media keys
+power | sys-power/powertop     | ::gentoo    | optional    | read-only power-draw diagnostics
+
+# ---- NVIDIA (compute / CUDA / OptiX; not the desktop GPU) -----------
+nvidia | x11-drivers/nvidia-drivers   | ::gentoo | required    | also ships nvidia-persistenced
+nvidia | dev-util/nvidia-cuda-toolkit | ::gentoo | optional    | CUDA (AI/ML, compute)
+nvidia | dev-libs/cudnn               | ::gentoo | optional    | cuDNN for deep-learning frameworks
+
+# ---- kernel / compiler / systems development ----------------------
+kernel-dev | sys-kernel/gentoo-sources | ::gentoo | required    | kernel source (NOT vendored into this repo)
+kernel-dev | sys-kernel/linux-headers  | ::gentoo | required    |
+kernel-dev | dev-build/make            | ::gentoo | required    |
+kernel-dev | sys-devel/gcc             | ::gentoo | required    | usually already in @system
+kernel-dev | sys-devel/binutils        | ::gentoo | required    |
+kernel-dev | sys-devel/bc              | ::gentoo | required    | kernel build
+kernel-dev | sys-devel/flex            | ::gentoo | required    | kernel build
+kernel-dev | sys-devel/bison           | ::gentoo | required    | kernel build
+kernel-dev | sys-libs/ncurses          | ::gentoo | required    | make menuconfig
+kernel-dev | sys-apps/kmod             | ::gentoo | required    | module tooling
+kernel-dev | app-arch/cpio             | ::gentoo | required    | initramfs
+kernel-dev | dev-util/pahole           | ::gentoo | recommended | BTF debug info for modern kernels
+kernel-dev | dev-debug/gdb             | ::gentoo | recommended |
+kernel-dev | dev-debug/strace          | ::gentoo | recommended |
+kernel-dev | dev-util/ccache           | ::gentoo | optional    | speed up rebuilds
+kernel-dev | dev-util/perf             | ::gentoo | optional    | profiling (tracks your kernel version)
+kernel-dev | sys-apps/kexec-tools      | ::gentoo | optional    | fast reboot into a test kernel
+kernel-dev | llvm-core/clang           | ::gentoo | optional    | Clang-built kernels / eBPF
+kernel-dev | llvm-core/llvm            | ::gentoo | optional    |
+kernel-dev | dev-lang/rust             | ::gentoo | optional    | Rust-for-Linux + general Rust work
+kernel-dev | dev-build/cmake           | ::gentoo | optional    | C/C++ projects
+kernel-dev | dev-build/ninja           | ::gentoo | optional    | C/C++ projects
+kernel-dev | app-emulation/qemu        | ::gentoo | optional    | boot-test kernels in a VM

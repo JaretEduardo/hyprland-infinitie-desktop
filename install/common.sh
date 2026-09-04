@@ -31,12 +31,13 @@ export INSTALL_DRY_RUN="${INSTALL_DRY_RUN:-}"
 export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 
 # Commands with a real implementation today (one script per name in install/cmd/).
-_CMD_IMPLEMENTED="infinite-desktop"
+_CMD_IMPLEMENTED="check infinite-desktop"
 # Commands recognised but not implemented yet (added in later stages).
-_CMD_PLANNED="check deps desktop gpu power first-run doctor full"
-# Of the implemented commands, those that actually honour --dry-run. The legacy
-# infinite-desktop command does not yet, so --dry-run refuses rather than lie.
-_CMD_DRYRUN_OK=""
+_CMD_PLANNED="deps desktop gpu power first-run doctor full"
+# Of the implemented commands, those that actually honour --dry-run. 'check' is
+# read-only so it does trivially; the legacy infinite-desktop command does not
+# yet, so --dry-run refuses for it rather than lie.
+_CMD_DRYRUN_OK="check"
 
 common::usage() {
     cat <<'EOF'
@@ -47,11 +48,11 @@ Usage:
 
 Commands:
   help                Show this help
+  check               Read-only system report (works on any distro)
   infinite-desktop    Install the Infinite Desktop component
                       (evdev daemon + Hyprland keybinds, copied to ~/scripts)
 
 Planned (later stages, not implemented yet):
-  check               Read-only system report
   deps                Detect missing Gentoo packages, print emerge commands
   desktop             Link/configure Hyprland, Quickshell, hypridle, hyprlock
   gpu                 Hybrid AMD/NVIDIA setup and nvidia-compute-mode

@@ -31,13 +31,13 @@ export INSTALL_DRY_RUN="${INSTALL_DRY_RUN:-}"
 export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 
 # Commands with a real implementation today (one script per name in install/cmd/).
-_CMD_IMPLEMENTED="check deps infinite-desktop"
+_CMD_IMPLEMENTED="check deps gpu infinite-desktop"
 # Commands recognised but not implemented yet (added in later stages).
-_CMD_PLANNED="desktop gpu power first-run doctor full"
+_CMD_PLANNED="desktop power first-run doctor full"
 # Of the implemented commands, those that actually honour --dry-run. 'check' and
-# 'deps' are read-only so they do trivially; the legacy infinite-desktop command
-# does not yet, so --dry-run refuses for it rather than lie.
-_CMD_DRYRUN_OK="check deps"
+# 'deps' are read-only; 'gpu' (without --apply) is read-only too. The legacy
+# infinite-desktop command does not, so --dry-run refuses for it rather than lie.
+_CMD_DRYRUN_OK="check deps gpu"
 
 common::usage() {
     cat <<'EOF'
@@ -50,12 +50,12 @@ Commands:
   help                Show this help
   check               Read-only system report (works on any distro)
   deps                Detect missing Gentoo packages/overlays, print the commands
+  gpu                 Hybrid AMD/NVIDIA + RTD3 config (plan; --apply to write)
   infinite-desktop    Install the Infinite Desktop component
                       (evdev daemon + Hyprland keybinds, copied to ~/scripts)
 
 Planned (later stages, not implemented yet):
   desktop             Link/configure Hyprland, Quickshell, hypridle, hyprlock
-  gpu                 Hybrid AMD/NVIDIA setup and nvidia-compute-mode
   power               hypridle / hyprlock / logind power ownership
   first-run           Machine-local generation (monitor refresh, NVIDIA backend)
   doctor              Read-only diagnostics

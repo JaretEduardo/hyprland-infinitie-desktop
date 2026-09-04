@@ -59,6 +59,7 @@ PanelWindow {
         Network {}
         Audio {}
         Brightness {}
+        NvidiaGpu { panelWindow: bar }
         Battery {}
     }
 }

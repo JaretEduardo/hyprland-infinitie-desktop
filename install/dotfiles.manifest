@@ -44,4 +44,13 @@ config | config/quickshell/modules/Network.qml      | quickshell/modules/Network
 config | config/quickshell/modules/Audio.qml        | quickshell/modules/Audio.qml
 config | config/quickshell/modules/Brightness.qml   | quickshell/modules/Brightness.qml
 config | config/quickshell/modules/SystemStats.qml  | quickshell/modules/SystemStats.qml
+config | config/quickshell/modules/NvidiaGpu.qml    | quickshell/modules/NvidiaGpu.qml
 config | config/quickshell/services/Frame.qml       | quickshell/services/Frame.qml
+
+# ---- backend CLIs the Quickshell modules shell out to ---------------------
+# modules/NvidiaGpu.qml calls `nvidia-compute-mode` by name (PATH lookup, with
+# a "command -v" guard so a PATH miss degrades cleanly instead of erroring).
+# Linking it into ~/.local/bin/ — conventionally on PATH — is what makes that
+# resolve; nvidia-offload goes alongside it for the same reason.
+home | bin/nvidia-compute-mode | .local/bin/nvidia-compute-mode
+home | bin/nvidia-offload      | .local/bin/nvidia-offload

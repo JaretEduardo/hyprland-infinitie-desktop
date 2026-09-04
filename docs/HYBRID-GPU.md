@@ -183,6 +183,76 @@ policy or the backend.
 
 ---
 
+## Quickshell widget (`modules/NvidiaGpu.qml`)
+
+A frontend for `bin/nvidia-compute-mode` — **no NVIDIA logic is duplicated in
+QML**. It only shells out to the backend, parses `--json`, and renders. The
+backend is looked up by name (`command -v nvidia-compute-mode`), so
+`install/dotfiles.manifest` symlinks `bin/nvidia-compute-mode` and
+`bin/nvidia-offload` into `~/.local/bin/` — without that, the widget could
+never find the backend to be a frontend of.
+
+Compact bar pill, one of three strings, derived entirely from backend fields
+(never computed independently):
+
+```
+NVIDIA · ECO        policy=eco,     runtime != active
+NVIDIA · ACTIVE      policy=eco,     runtime == active   (flags "something is keeping it awake")
+NVIDIA · COMPUTE       policy=compute                    (active is expected here, not called out)
+```
+
+Clicking it opens a detail panel (a `PopupWindow` anchored under the bar) that
+always shows **Policy** and **Runtime** as separate lines — `ACTIVE` is never
+written back as if it were a policy, only ever read from `runtime_pm_state`.
+It also separates **Runtime PM** from **PCI power state**, and only appends
+"(confirmed)" to the PCI state when the backend's own `d3cold_confirmed` field
+says so — the widget does not decide D3cold on its own.
+
+### The no-wake rule, enforced in one place
+
+While `Policy=ECO`, the automatic refresh timer calls **only**
+`nvidia-compute-mode status --json` — never `--deep` — regardless of whether
+`Runtime` is `active` or `suspended`. The only two code paths that can ever add
+`--deep` are:
+
+1. the refresh timer while `Policy=COMPUTE` (keeping the GPU awake is
+   intentional there), or
+2. `Show detailed metrics` in ECO, which takes **two explicit clicks**: the
+   first only arms a warning — *"This check may wake or keep the NVIDIA GPU
+   active."* — the second, separate click actually runs the one-off
+   `--deep` query. It is never turned into polling.
+
+Cadence: ECO polls `status --json` every 4.5 s; COMPUTE polls
+`status --json --deep` every 3 s (both moderate, no sub-second timers). After
+`Start Compute Session` / `Return to Eco`, the widget re-queries `status --json`
+immediately instead of waiting for the next tick.
+
+### Privilege boundary (unchanged from `bin/nvidia-compute-mode`)
+
+The widget never writes `power/control`, never calls `sudo`, and holds no
+privilege logic itself — that boundary lives entirely in the backend (see
+above). `Start Compute Session` / `Return to Eco` call `nvidia-compute-mode
+eco|compute` and then **always re-run `status --json`** to show the real
+resulting state; a failed transition (missing privilege, an error from the
+backend) is surfaced as an error banner, never presented as if it had
+succeeded.
+
+### `backend=auto` / unresolved
+
+The panel distinguishes `Policy: COMPUTE` from whether a keep-awake mechanism
+is actually in effect: when `backend` is `auto` or `none` (or `backend_active`
+is false), it shows `Backend: auto (unresolved)` plus a warning that COMPUTE is
+recorded but not yet guaranteeing keep-awake — it is never presented as a fully
+active COMPUTE session.
+
+### Clients
+
+Labelled `Detected NVIDIA clients (best-effort)`, straight from the backend's
+`clients` array — the wording never claims the list is complete or that those
+are necessarily all the processes responsible. Nothing is ever killed.
+
+---
+
 ## Requires Gentoo first-run validation
 
 - [ ] `cat /sys/module/nvidia_drm/parameters/modeset` returns `Y` after reboot
@@ -199,6 +269,10 @@ policy or the backend.
 - [ ] a real `compute_backend` for `nvidia-compute-mode compute`
 - [ ] suspend/resume across a few real cycles with the NVIDIA GPU both asleep
       and awake
+- [ ] `modules/NvidiaGpu.qml` against real `nvidia-compute-mode` output — no
+      `qs`, `qmllint`, or Quickshell runtime is available on Fedora, so the
+      QML has only been verified statically and by extracting and exercising
+      its real JS logic outside a QML engine (see the stage's commit)
 
 ---
 

@@ -2,7 +2,7 @@
 -- Wiki: Configuring/Basics/Autostart
 --
 -- NOT started here (added when their configs exist / by later stages):
---   Quickshell, hypridle, hyprlock, hyprpaper, any NVIDIA / GPU service.
+--   hypridle, hyprlock, hyprpaper, any NVIDIA / GPU service.
 
 hl.on("hyprland.start", function()
     -- Make the Wayland session visible to the systemd user session and D-Bus
@@ -13,4 +13,11 @@ hl.on("hyprland.start", function()
     -- polkit authentication agent (privilege prompts). Harmless if the unit is
     -- not installed; a later stage adds the package.
     hl.exec_cmd("systemctl --user start hyprpolkitagent.service")
+
+    -- Quickshell (config/quickshell/, linked to ~/.config/quickshell/ by
+    -- `install.sh dotfiles --apply`). Guarded so a Hyprland config reload (which
+    -- re-fires this file's own module load, though NOT the hyprland.start event
+    -- itself) or a stray extra run can never spawn a second bar instance.
+    -- Harmless if `qs` is not installed yet.
+    hl.exec_cmd("command -v qs >/dev/null 2>&1 && (pgrep -x qs >/dev/null || qs) || true")
 end)

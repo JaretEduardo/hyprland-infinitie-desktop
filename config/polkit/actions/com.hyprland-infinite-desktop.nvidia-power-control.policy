@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  NOT installed by any --apply flow in this repo. Prepared infrastructure —
+  see docs/HYBRID-GPU.md "Privilege boundary" for the manual install steps
+  and why installation stays manual until validated on real Gentoo hardware.
+
+  Scope, deliberately as narrow as polkit lets a single action be:
+    - grants ONLY execution of bin/nvidia-power-control-helper, via the
+      org.freedesktop.policykit.exec.path annotation below (pkexec's
+      standard mechanism for pinning an action to one specific program —
+      the helper itself further restricts its own argument to exactly
+      "auto" or "on", so this action can never be used to run arbitrary
+      root commands, just those two states of the one sysfs node it
+      touches; see the helper's own header comment for the rest of the
+      defense-in-depth)
+    - requires the ACTIVE local session to (re-)enter the admin password
+      every time (auth_admin, not auth_admin_keep — no long-lived cached
+      grant, matching "mínimo privilegio necesario" over convenience)
+    - refused outright for an inactive or non-local session (allow_any /
+      allow_inactive = no) — this laptop has one seat and one user
+-->
+<policyconfig>
+  <vendor>hyprland-infinitie-desktop</vendor>
+  <vendor_url>https://codeberg.org/hyproverlay</vendor_url>
+
+  <action id="com.hyprland-infinite-desktop.nvidia-power-control">
+    <description>Change the NVIDIA GPU's runtime power-management mode</description>
+    <message>Authentication is required to change the NVIDIA GPU's runtime power-management mode (power/control: auto &lt;-&gt; on)</message>
+    <icon_name>gpu-card</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/hyprland-infinite-desktop/nvidia-power-control-helper</annotate>
+  </action>
+</policyconfig>

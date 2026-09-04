@@ -1,8 +1,36 @@
 # First run
 
-This is not the `install.sh first-run` command yet (not built — see
-[INSTALL.md](INSTALL.md)). For now it covers one thing: verifying the laptop's
-real hardware keys once Hyprland is actually running on this machine.
+`install.sh first-run` walks through everything below in order (plan mode is
+read-only; `--apply` offers to resolve each pending item, with its own
+confirmation). It does not reimplement any of these checks — it calls
+`install.sh check` / `dotfiles` / `monitor` / `doctor` and
+`nvidia-compute-mode` directly; this document is the detail behind each
+section, and the reference `wev` table it shows verbatim.
+
+## Monitor configuration (`install.sh monitor`)
+
+```
+install.sh monitor            # detect + show the plan (read-only)
+install.sh monitor --apply    # detect + show + confirm + write
+```
+
+Needs a live Hyprland session — it reads `hyprctl -j monitors all` (never
+guesses an output if that fails) and cross-checks each connector's real
+EDID-preferred resolution via `lib/hardware.sh`'s DRM/sysfs reading, then
+picks the **highest refresh rate available at that native resolution** —
+never a lower resolution just because it advertises more Hz. It shows every
+detected monitor (internal panel identified by an `eDP-*` name, external
+monitors preserved, never disabled), its full mode list, and the chosen mode
+for each, before writing anything. Generates
+`~/.config/hypr/monitors.local.lua` — machine-local, not tracked by git — and
+is idempotent: an identical file is a no-op, a differing one is diffed,
+confirmed, and backed up (`lib/backup.sh`) before being replaced.
+
+This can only be validated for real on Gentoo: whether `eDP-1` really is the
+name Hyprland reports for the internal panel on this hardware, and whether
+`1920x1200@165` (or whatever the driver actually offers) is really what comes
+back — see the stage's commit message for the exact plan this repo's own
+data produced.
 
 ## Verifying the Fn-row / media keys
 
@@ -82,6 +110,19 @@ Hyprland running), so it needs a real pass on Gentoo:
 7. Run `nvidia-compute-mode status` before and after a suspend/resume cycle,
    in both `eco` and (if a real `compute_backend` is set up) `compute` — the
    reported policy must be identical before and after.
+
+## NVIDIA compute backend (`install.sh first-run`, section 5)
+
+Guided resolution of `compute_backend=auto` — see
+[HYBRID-GPU.md](HYBRID-GPU.md) "Resolving compute_backend" and "Privilege
+boundary" for the full design. In short: `install.sh first-run --apply` can
+test the `power-control` candidate for real (COMPUTE, verify, back to ECO —
+never kills a process, never unloads a module, never PCI remove/rescan), and
+only records it as the backend if both directions succeed; any failure
+reverts to `auto`. This needs the real Gentoo/NVIDIA driver combination to
+mean anything — on Fedora it correctly stops at "needs root" and leaves
+`auto` in place, since the polkit helper (`bin/nvidia-power-control-helper`)
+is prepared infrastructure, not installed by anything yet.
 
 ## Brightness reflected in the bar
 

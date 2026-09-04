@@ -9,7 +9,7 @@ matter.
 ```
 
 This document covers the commands that exist today. It will grow as the
-remaining commands (`first-run`, `full`) land.
+remaining command (`full`) lands.
 
 ## Global options
 
@@ -156,3 +156,40 @@ for real under `--apply` on any distro.
 Idempotent the same way its steps already are: a second `--apply` run relinks
 nothing that's already linked, rewrites nothing that already matches, and
 creates no new backups — see each step's own section above.
+
+### `monitor` — real monitor detection from a live Hyprland session
+
+```
+./install.sh monitor             # detect + show the plan (read-only)
+./install.sh monitor --apply     # detect + show + confirm + write
+```
+
+Needs a live Hyprland session — plan mode is not an exception to that, since
+there is nothing real to plan without one. Reads `hyprctl -j monitors all`
+(never guesses an output if that fails), cross-checks each connector's real
+native resolution against `lib/hardware.sh`'s DRM/sysfs EDID-preferred mode,
+and picks the highest refresh rate available at that resolution (never a
+lower resolution just because it has more Hz). Writes
+`~/.config/hypr/monitors.local.lua` (machine-local, not tracked by git;
+`config/hypr/lua/monitors.lua`'s generic fallback still covers anything not
+listed there) — identical content is a no-op, a difference is diffed,
+confirmed, and backed up first. See
+[FIRST-RUN.md](FIRST-RUN.md#monitor-configuration-installsh-monitor).
+
+### `first-run` — guided checklist for what only real hardware can decide
+
+```
+./install.sh first-run             # read-only checklist
+./install.sh first-run --apply     # work through pending items, each confirmed
+```
+
+Reuses `check`, `dotfiles`, `monitor`, `doctor` and `nvidia-compute-mode`
+directly — nothing here re-implements what those already do. Adds two things
+that exist nowhere else: a guided walkthrough of the expected XF86 keysyms
+against `wev` (no automation — physical key presses can't be simulated, the
+user confirms), and a guided, reversible test of the NVIDIA `power-control`
+compute backend (COMPUTE, verify, back to ECO; the backend is only recorded
+if both directions genuinely succeeded, otherwise it stays `auto`). Never
+calls `sudo`, `emerge`, or `usermod`; on a non-Gentoo host it reports what it
+can and says plainly what needs the real target. See
+[FIRST-RUN.md](FIRST-RUN.md) and [HYBRID-GPU.md](HYBRID-GPU.md#resolving-compute_backend-installsh-first-run).

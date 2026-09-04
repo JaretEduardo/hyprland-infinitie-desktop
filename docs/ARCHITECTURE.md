@@ -19,13 +19,16 @@ lib/
   nvidia.sh                    read-only, power-aware NVIDIA observation (no-wake)
   backup.sh  symlink.sh        safe, non-destructive dotfile primitives
 bin/
-  nvidia-offload               PRIME render-offload wrapper
-  nvidia-compute-mode          NVIDIA compute-session backend (eco / compute)
+  nvidia-offload                PRIME render-offload wrapper
+  nvidia-compute-mode           NVIDIA compute-session backend (eco / compute / set-backend)
+  nvidia-power-control-helper   the ONE privileged power/control write; NOT installed
+                                 anywhere by any --apply flow — see HYBRID-GPU.md
 config/
   gpu/                         modprobe.d + udev templates for the hybrid GPU
   hypr/                        modular Hyprland Lua config (see below)
   hypridle/  hyprlock/         idle ladder + lock screen config (see POWER.md)
   logind/                      logind.conf.d drop-in for lid/power-key/idle-action
+  polkit/actions/              polkit policy for the helper above; also NOT installed
   quickshell/                  modular Quickshell bar
 scripts/
   infinite-desktop/            the Infinite Desktop component (evdev daemon + IPC)
@@ -51,6 +54,15 @@ after `deps` (with `doctor` still run at the end as a read-only snapshot),
 and keeps `gpu --apply` / `power --apply` plan-only on a non-Gentoo host —
 the two steps that write real files under `/etc` are never applied for real
 off the Gentoo target.
+
+`monitor` and `first-run` are the two commands for what genuinely cannot be
+decided without a real Gentoo + Hyprland session: `monitor` reads
+`hyprctl -j monitors all` (no live session, no plan — there is nothing real to
+plan without one) and writes `~/.config/hypr/monitors.local.lua`; `first-run`
+is a guided checklist that reuses `check`/`dotfiles`/`monitor`/`doctor` and
+`nvidia-compute-mode` (never re-implementing their detection), adding only a
+`wev`-guided XF86-key walkthrough and a guided, reversible NVIDIA
+`compute_backend` test. See [FIRST-RUN.md](FIRST-RUN.md).
 
 ## Hyprland configuration
 

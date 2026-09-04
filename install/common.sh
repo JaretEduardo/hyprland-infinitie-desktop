@@ -31,14 +31,14 @@ export INSTALL_DRY_RUN="${INSTALL_DRY_RUN:-}"
 export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 
 # Commands with a real implementation today (one script per name in install/cmd/).
-_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power desktop"
+_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run"
 # Commands recognised but not implemented yet (added in later stages).
-_CMD_PLANNED="first-run full"
+_CMD_PLANNED="full"
 # Of the implemented commands, those that honour --dry-run. 'check', 'deps' and
-# 'doctor' are read-only; 'gpu', 'dotfiles', 'infinite-desktop', 'power' and
-# 'desktop' (which only orchestrates those) show what they would do and write
+# 'doctor' are read-only; 'gpu', 'dotfiles', 'infinite-desktop', 'power',
+# 'desktop', 'monitor' and 'first-run' show what they would do and write
 # nothing under --dry-run.
-_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power desktop"
+_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run"
 
 common::usage() {
     cat <<'EOF'
@@ -61,9 +61,14 @@ Commands:
   desktop             Orchestrates check/deps/dotfiles/gpu/power/infinite-desktop/doctor
                       (plan; --apply to run the real sequence). Reuses each of
                       those commands as-is; adds no new privileged action.
+  monitor             Detect real monitors from a live Hyprland session, write
+                      ~/.config/hypr/monitors.local.lua (plan; --apply to write)
+  first-run           Guided checklist for what only Gentoo+Hyprland can decide:
+                      real monitor config, the NVIDIA compute backend, and the
+                      remaining hardware validations (plan; --apply to work
+                      through pending items)
 
 Planned (later stages, not implemented yet):
-  first-run           Machine-local generation (monitor refresh, NVIDIA backend)
   full                Guided end-to-end orchestration
 
 Global options:

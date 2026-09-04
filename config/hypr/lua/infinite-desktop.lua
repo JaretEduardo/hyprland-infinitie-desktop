@@ -1,22 +1,50 @@
--- lua/infinite-desktop.lua — Infinite Desktop integration. SEAM.
+-- lua/infinite-desktop.lua — the ONLY seam between Infinite Desktop and the
+-- rest of the Hyprland config. Loaded last (after lua/bindings.lua).
 --
--- Intentionally empty in this stage. Stage 16 wires the Infinite Desktop
--- component in here and retires the legacy patch_hyprland.py mechanism:
---
---   * autostart the evdev daemon
---       hl.on("hyprland.start", function()
---           hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6 > /tmp/infinite-desktop.log 2>&1")
---       end)
---
---   * its keybinds
---       SUPER + arrows            navigate / centre the next window   (replaces
---                                 the plain "move focus" binds in lua/bindings.lua)
---       SUPER + SHIFT + arrows    move the active floating window
---       SUPER + ALT + arrows      move a tiled window
---       SUPER + CTRL + arrows     resize the active window
---       SUPER + D                 toggle floating / tiled for the workspace
---       SUPER + Z / SUPER + X     previous / next workspace
---
---   All dispatch is routed through ~/scripts/hypr_ipc.py.
---
+-- Infinite Desktop is a Python/evdev component installed to ~/scripts by
+-- `install.sh infinite-desktop`:
+--   infinite_desktop_core.py  evdev daemon: pans all floating windows on
+--                             SUPER + ALT + mouse, drives the keybinds below,
+--                             optional Quickshell frame hint (qs ipc call frame)
+--   navigate_windows.py       focus / centre the next window
+--   move_window.py            move the active floating window (edge-pushes others)
+--   move_window_tiled.py      move a tiled window
+--   resize_window.py          resize the active floating window
+--   floating_tile_toggle.py   toggle floating/tiled for the whole workspace
+--   hypr_ipc.py               the single place all hyprctl dispatch calls are built
 -- See docs/INFINITE-DESKTOP.md.
+
+local mod = "SUPER"
+
+-- Autostart the evdev daemon. "1.6" is the pan-speed multiplier (its only arg).
+hl.on("hyprland.start", function()
+    hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6 > /tmp/infinite-desktop.log 2>&1")
+end)
+
+-- SUPER + arrows: Infinite Desktop's navigate replaces the plain "move focus"
+-- binds from lua/bindings.lua (same keys, richer behaviour). Unbind first — a
+-- second hl.bind on the same key would add a handler, not replace it.
+for _, d in ipairs({ "left", "right", "up", "down" }) do
+    hl.unbind(mod .. " + " .. d)
+
+    hl.bind(mod .. " + " .. d,
+        hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py " .. d))
+
+    hl.bind(mod .. " + SHIFT + " .. d,
+        hl.dsp.exec_cmd("python3 ~/scripts/move_window.py " .. d), { repeating = true })
+
+    hl.bind(mod .. " + ALT + " .. d,
+        hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py " .. d))
+
+    hl.bind(mod .. " + CTRL + " .. d,
+        hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py " .. d), { repeating = true })
+end
+
+-- SUPER + D: toggle floating / tiled for every window on the workspace.
+hl.bind(mod .. " + D", hl.dsp.exec_cmd("python3 ~/scripts/floating_tile_toggle.py"))
+
+-- SUPER + Z / X: previous / next workspace ; + SHIFT: move the active window there.
+hl.bind(mod .. " + Z",         hl.dsp.focus({ workspace = "-1" }))
+hl.bind(mod .. " + X",         hl.dsp.focus({ workspace = "+1" }))
+hl.bind(mod .. " + SHIFT + Z", hl.dsp.window.move({ workspace = "-1" }))
+hl.bind(mod .. " + SHIFT + X", hl.dsp.window.move({ workspace = "+1" }))

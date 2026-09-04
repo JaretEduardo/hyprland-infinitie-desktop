@@ -1,362 +1,176 @@
 #!/usr/bin/env bash
 #
-# im in love with-
+# install.sh infinite-desktop — install / verify the Infinite Desktop runtime
+# component (the Python/evdev daemon + its helper scripts).
 #
-# `install.sh infinite-desktop` -> this script. Still runnable on its own; the
-# legacy ./install-hyprland-infinite-desktop.sh forwards here too.
+# It does NOT touch the Hyprland config. The keybinds and autostart are declared
+# in config/hypr/lua/infinite-desktop.lua and linked into place by
+# `install.sh dotfiles --apply`.
+#
+# It also does NOT install packages, call sudo, or run usermod. Missing
+# dependencies are reported (fix with `install.sh deps`); the `input` group is
+# checked and explained, never modified here.
 #
 set -euo pipefail
 
-# Repository root. Provided by install.sh (INSTALL_REPO_DIR); when run directly,
-# resolved from this file's location (install/cmd/ -> two levels up), never from cwd.
-if [ -n "${INSTALL_REPO_DIR:-}" ]; then
-    REPO_DIR="$INSTALL_REPO_DIR"
-else
-    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [ -n "${INSTALL_REPO_DIR:-}" ]; then REPO_DIR="$INSTALL_REPO_DIR"
+else REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"; fi
+
+# shellcheck source=lib/log.sh
+. "$REPO_DIR/lib/log.sh"
+# shellcheck source=lib/ui.sh
+. "$REPO_DIR/lib/ui.sh"
+# shellcheck source=lib/backup.sh
+. "$REPO_DIR/lib/backup.sh"
+
+SRC_DIR="$REPO_DIR/scripts/infinite-desktop"
+DEST_DIR="${INFINITE_DESKTOP_DEST:-$HOME/scripts}"   # runtime location (kept as ~/scripts for now)
+DRY="${INSTALL_DRY_RUN:-}"
+for a in "$@"; do
+    case "$a" in
+        --dry-run) DRY=1 ;;
+        -*) log::error "infinite-desktop: unknown option: $a"; exit 2 ;;
+        *)  log::error "infinite-desktop: unexpected argument: $a"; exit 2 ;;
+    esac
+done
+
+N_COPIED=0; N_UPTODATE=0; N_CONFLICT=0
+HARD_FAIL=0
+
+# --- runtime scripts ------------------------------------------------------
+
+_install_script() {
+    local src="$1" name dest
+    name="$(basename "$src")"
+    dest="$DEST_DIR/$name"
+
+    if [ ! -e "$dest" ]; then
+        if [ -n "$DRY" ]; then log::info "would install $name"; N_COPIED=$((N_COPIED+1)); return 0; fi
+        install -D -m 0644 "$src" "$dest"
+        case "$name" in *.py|*.sh) chmod +x "$dest" ;; esac
+        log::ok "installed $name"
+        N_COPIED=$((N_COPIED+1))
+        return 0
+    fi
+    if cmp -s "$src" "$dest"; then
+        [ -n "${INSTALL_VERBOSE:-}" ] && log::info "$name already up to date"
+        N_UPTODATE=$((N_UPTODATE+1))
+        return 0
+    fi
+
+    # differs — never overwrite silently
+    N_CONFLICT=$((N_CONFLICT+1))
+    log::warn "$dest differs from the repo copy"
+    if [ -n "${INSTALL_VERBOSE:-}" ]; then
+        diff -u "$dest" "$src" 2>/dev/null | sed 's/^/    /' || true
+    fi
+    if [ -n "$DRY" ]; then log::info "would back up $dest and replace it"; return 0; fi
+    if ! ui::confirm "Back up $dest and replace it with the repo copy?"; then
+        log::warn "kept $dest as-is — Infinite Desktop may misbehave until it matches the repo"
+        return 0
+    fi
+    backup::save "$dest" >/dev/null
+    install -D -m 0644 "$src" "$dest"
+    case "$name" in *.py|*.sh) chmod +x "$dest" ;; esac
+    log::ok "backed up + installed $name"
+    N_COPIED=$((N_COPIED+1))
+}
+
+# --- dependency + permission checks (report only) ---------------------
+
+check_runtime() {
+    ui::section "Runtime requirements"
+
+    if command -v python3 >/dev/null 2>&1; then
+        ui::kv "python3" "$(command -v python3)"
+    else
+        log::error "python3 not found — run: install.sh deps"
+        HARD_FAIL=1
+    fi
+    if command -v python3 >/dev/null 2>&1 && python3 -c 'import evdev' 2>/dev/null; then
+        ui::kv "python evdev" "importable"
+    else
+        log::warn "python 'evdev' module not importable — the daemon will not start."
+        log::warn "  Gentoo: emerge dev-python/evdev   (or: install.sh deps)"
+    fi
+    if command -v jq >/dev/null 2>&1; then
+        ui::kv "jq" "$(command -v jq)"
+    else
+        log::warn "jq not found (used by parts of the component) — install.sh deps"
+    fi
+    if command -v hyprctl >/dev/null 2>&1; then
+        ui::kv "hyprctl" "$(command -v hyprctl)"
+    else
+        log::info "hyprctl not found — expected until Hyprland is installed on Gentoo"
+    fi
+    if command -v qs >/dev/null 2>&1; then
+        ui::kv "qs (Quickshell)" "present — the optional frame hint will work"
+    else
+        log::info "qs (Quickshell) not found — the optional 'qs ipc call frame' hint is skipped at runtime"
+    fi
+}
+
+check_input_access() {
+    ui::section "Input device access (evdev)"
+    if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx input; then
+        log::ok "your user is in the 'input' group"
+    else
+        log::warn "your user is NOT in the 'input' group."
+        log::warn "  The daemon reads /dev/input/event* directly and needs it. To grant it:"
+        log::warn "      sudo usermod -aG input \"\$USER\"      then log out and back in"
+        log::warn "  This installer will NOT run usermod for you."
+    fi
+    # can we actually open an event device right now?
+    local readable=0 d
+    for d in /dev/input/event*; do
+        [ -e "$d" ] || continue
+        if [ -r "$d" ]; then readable=1; break; fi
+    done
+    if [ "$readable" = 1 ]; then
+        log::ok "at least one /dev/input/event* is readable by this user now"
+    else
+        log::warn "no /dev/input/event* is readable yet (group change needs a re-login)"
+    fi
+    cat <<'EOF'
+  Note: membership in 'input' grants read access to ALL input events on the
+  system (every keystroke, every mouse move) for any process you run. That is
+  the trade-off evdev requires. A tighter permission model (an ACL or a small
+  privileged helper) can be decided during first-run; this stage does not
+  change /dev/input permissions.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+ui::header "Infinite Desktop"
+[ -n "$DRY" ] && log::info "dry-run: nothing will be written"
+
+if [ ! -d "$SRC_DIR" ]; then
+    log::error "component scripts not found in the repository: $SRC_DIR"
+    exit 1
 fi
-SCRIPTS_DEST="${HOME}/scripts"
-HYPR_LUA="${HOME}/.config/hypr/hyprland.lua"
-TMP_DIR="$(mktemp -d)"
 
-C_RESET="\033[0m"; C_BOLD="\033[1m"; C_GREEN="\033[32m"; C_YELLOW="\033[33m"; C_RED="\033[31m"; C_CYAN="\033[36m"
+check_runtime
+check_input_access
 
-log()  { echo -e "${C_CYAN}==>${C_RESET} $*"; }
-ok()   { echo -e "${C_GREEN}[OK]${C_RESET} $*"; }
-warn() { echo -e "${C_YELLOW}[WARNING]${C_RESET} $*"; }
-err()  { echo -e "${C_RED}[ERROR]${C_RESET} $*" >&2; }
+ui::section "Runtime scripts  ->  $DEST_DIR"
+[ -n "$DRY" ] || mkdir -p "$DEST_DIR"
+while IFS= read -r -d '' f; do
+    _install_script "$f"
+done < <(find "$SRC_DIR" -maxdepth 1 -type f \( -name '*.py' -o -name '*.sh' \) -print0)
 
-cleanup() { rm -rf "${TMP_DIR}"; }
-trap cleanup EXIT
+# --- summary --------------------------------------------------------
+ui::header "Summary"
+ui::kv "installed / updated" "$N_COPIED"
+ui::kv "already up to date"   "$N_UPTODATE"
+ui::kv "conflicts kept"       "$N_CONFLICT"
+printf '\n'
+log::info "Keybinds + autostart are declared in config/hypr/lua/infinite-desktop.lua."
+log::info "Apply them with:  ./install.sh dotfiles --apply"
 
-require_cmd() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# sh1t over trash
-install_packages() {
-    log "Detecting distro and installing required packages (python, python-evdev, bash, jq)..."
-
-    if [ -f /etc/os-release ]; then
-        # shellcheck disable=SC1091
-        . /etc/os-release
-        DISTRO_ID="${ID:-unknown}"
-        DISTRO_LIKE="${ID_LIKE:-}"
-    else
-        DISTRO_ID="unknown"
-        DISTRO_LIKE=""
-    fi
-
-    if [[ "$DISTRO_ID" == "arch" || "$DISTRO_LIKE" == *arch* ]]; then
-        sudo pacman -S --needed --noconfirm python python-evdev bash jq
-    elif [[ "$DISTRO_ID" == "fedora" || "$DISTRO_LIKE" == *fedora* ]]; then
-        sudo dnf install -y python python-evdev bash jq
-    elif [[ "$DISTRO_ID" == "ubuntu" || "$DISTRO_ID" == "debian" || "$DISTRO_LIKE" == *debian* ]]; then
-        sudo apt update
-        sudo apt install -y python3 python3-evdev bash jq
-    else
-        warn "Could not automatically recognize your distro (ID=$DISTRO_ID)."
-        warn "Please install manually: python3, python-evdev, bash, jq"
-    fi
-    ok "Packages installed (or already present)."
-}
-
-
-# 2. "input" group membership (required by python-evdev and a lot of things)
-
-setup_input_group() {
-    log "Adding your user (${USER}) to the 'input' group..."
-    if groups "$USER" | grep -qw input; then
-        ok "Your user already belongs to the 'input' group."
-    else
-        sudo usermod -aG input "$USER"
-        warn "User added to the 'input' group. You must LOG OUT (or reboot) for this to take effect."
-        NEED_RELOGIN=1
-    fi
-}
-
-
-# 3. Copy the Infinite Desktop scripts from this repository checkout
-
-install_scripts() {
-    local src="${REPO_DIR}/scripts/infinite-desktop"
-
-    if [ ! -d "${src}" ]; then
-        err "Could not find the Infinite Desktop scripts in this repository (${src})."
-        err "This installer must be executed from a complete repository checkout."
-        exit 1
-    fi
-
-    log "Installing scripts from ${src} into ${SCRIPTS_DEST} ..."
-    mkdir -p "${SCRIPTS_DEST}"
-
-    # Copy every .py and .sh script that lives directly in scripts/infinite-desktop/
-    find "${src}" -maxdepth 1 -type f \( -name "*.py" -o -name "*.sh" \) -print0 |
-        while IFS= read -r -d '' f; do
-            cp -f "$f" "${SCRIPTS_DEST}/"
-            ok "Copied: $(basename "$f")"
-        done
-
-    log "Applying execute permissions..."
-    chmod +x \
-        "${SCRIPTS_DEST}/floating_tile_toggle.py" \
-        "${SCRIPTS_DEST}/move_window_tiled.py" \
-        "${SCRIPTS_DEST}/navigate_windows.py" \
-        "${SCRIPTS_DEST}/resize_window.py" \
-        "${SCRIPTS_DEST}/move_window.py" \
-        "${SCRIPTS_DEST}/infinite_desktop_core.py" \
-        2>/dev/null || true
-
-    # discover_hyprland_api.sh is an optional diagnostic utility from the repo
-    [ -f "${SCRIPTS_DEST}/discover_hyprland_api.sh" ] && chmod +x "${SCRIPTS_DEST}/discover_hyprland_api.sh"
-
-    ok "Scripts installed in ${SCRIPTS_DEST}"
-}
-
-# 4.  Now patch hyprland.lua (autostart + binds, with conflict reassignment)
-
-patch_hyprland_config() {
-    log "Updating ${HYPR_LUA} (autostart + keybinds)..."
-    mkdir -p "$(dirname "${HYPR_LUA}")"
-
-    # 'set -e' would abort the script before we can read $? on any non-zero
-    # exit, including the expected code 3. Capture it in the same command list
-    # instead, without disabling errexit globally.
-    local STATUS=0
-    python3 "${TMP_DIR}/patch_hyprland.py" "${HYPR_LUA}" "${SCRIPTS_DEST}" || STATUS=$?
-
-    if [ "$STATUS" -eq 3 ]; then
-        warn "hyprland.lua was not modified (already installed before)."
-    elif [ "$STATUS" -ne 0 ]; then
-        err "Failed to patch hyprland.lua"
-        exit 1
-    fi
-}
-
-write_patch_script() {
-cat > "${TMP_DIR}/patch_hyprland.py" << 'PYEOF'
-#!/usr/bin/env python3
-import re, sys, os, datetime
-
-HYPR_LUA = os.path.expanduser(sys.argv[1]) if len(sys.argv) > 1 else os.path.expanduser("~/.config/hypr/hyprland.lua")
-
-MARK_START = "-- >>> hyprland-infinite-desktop-v2 (auto-installed) START"
-MARK_END   = "-- <<< hyprland-infinite-desktop-v2 (auto-installed) END"
-
-# Alternative key ladders to try on collision (in order of preference).
-# For arrow keys, if SUPER+arrow is already taken, fall back to vim-style keys.
-FALLBACK = {
-    "Z": ["Z", "COMMA", "MINUS", "F13"],
-    "X": ["X", "PERIOD", "EQUAL", "F14"],
-    "D": ["D", "F", "G", "B"],
-    "left": ["left", "H"],
-    "right": ["right", "L"],
-    "up": ["up", "K"],
-    "down": ["down", "J"],
-}
-
-def norm_key(k):
-    return k.strip().upper()
-
-BINDS = []
-
-def add(id_, mods, basekey, action_tpl, desc):
-    BINDS.append({"id": id_, "mods": mods, "basekey": basekey, "action_tpl": action_tpl, "desc": desc})
-
-add("ws_prev", ["MOD"], "Z", '{mod} .. " + {key}", hl.dsp.focus({{ workspace = "-1" }})', "Previous workspace")
-add("ws_next", ["MOD"], "X", '{mod} .. " + {key}", hl.dsp.focus({{ workspace = "+1" }})', "Next workspace")
-add("ws_prev_move", ["MOD", "SHIFT"], "Z", '{mod} .. " + SHIFT + {key}", hl.dsp.window.move({{ workspace = "-1" }})', "Move window to previous workspace")
-add("ws_next_move", ["MOD", "SHIFT"], "X", '{mod} .. " + SHIFT + {key}", hl.dsp.window.move({{ workspace = "+1" }})', "Move window to next workspace")
-add("toggle_floating_all", ["MOD"], "D", '{mod} .. " + {key}", hl.dsp.exec_cmd("python3 ~/scripts/floating_tile_toggle.py")', "Toggle floating/tiled (all windows)")
-
-for d in ["left", "right", "up", "down"]:
-    add(f"nav_{d}", ["MOD"], d, '{mod} .. " + {key}", hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py ' + d + '")', f"Navigate window ({d})")
-    add(f"movetiled_{d}", ["MOD", "ALT"], d, '{mod} .. " + ALT + {key}", hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py ' + d + '")', f"Move tiled window ({d})")
-    add(f"movefloat_{d}", ["MOD", "SHIFT"], d, '{mod} .. " + SHIFT + {key}", hl.dsp.exec_cmd("python3 ~/scripts/move_window.py ' + d + '"), {{ repeating = true }}', f"Move floating window ({d})")
-    add(f"resize_{d}", ["MOD", "CTRL"], d, '{mod} .. " + CTRL + {key}", hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py ' + d + '"), {{ repeating = true }}', f"Resize window ({d})")
-
-def read_file(path):
-    if not os.path.exists(path):
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-def detect_mainmod(content):
-    m = re.search(r'local\s+mainMod\s*=\s*"([A-Za-z0-9_ +]+)"', content)
-    if m:
-        return m.group(1).strip().upper()
-    return "SUPER"
-
-def first_call_arg(line, call_idx_end):
-    depth = 0
-    buf = []
-    i = call_idx_end
-    while i < len(line):
-        c = line[i]
-        if c in "([{":
-            depth += 1
-        elif c in ")]}":
-            if depth == 0:
-                break
-            depth -= 1
-        elif c == "," and depth == 0:
-            break
-        buf.append(c)
-        i += 1
-    return "".join(buf)
-
-def extract_existing_signatures(content):
-    """
-    Normalized signature (frozenset of mods+key) for every existing
-    hl.bind()/bind() call, using only its first argument (the key
-    combination). Assumes one bind() call per line (the usual pattern
-    in hyprland.lua).
-    """
-    mainmod = detect_mainmod(content)
-    sigs = {}
-    for line in content.splitlines():
-        m = re.search(r'\bbind\(', line)
-        if not m:
-            continue
-        arg = first_call_arg(line, m.end())
-        if "mainMod" not in arg and '"' not in arg:
-            continue
-        literals = re.findall(r'"([^"]*)"', arg)
-        if not literals:
-            continue
-        joined = " ".join(literals)
-        tokens = re.split(r'\+', joined)
-        tokens = [norm_key(t) for t in tokens if t.strip() != ""]
-        if "mainMod" in arg:
-            tokens = [mainmod] + tokens
-        if not tokens:
-            continue
-        sigs[frozenset(tokens)] = line.strip()
-    return sigs, mainmod
-
-def build_signature(mods, key, mainmod):
-    resolved = [mainmod if m == "MOD" else m for m in mods]
-    return frozenset([norm_key(x) for x in resolved] + [norm_key(key)])
-
-def resolve_binds(content):
-    existing_sigs, mainmod = extract_existing_signatures(content)
-    chosen = {}
-    used_sigs = set(existing_sigs.keys())
-    remapped_report = []
-
-    for b in BINDS:
-        candidates = FALLBACK.get(b["basekey"], [b["basekey"]])
-        picked = None
-        picked_mods = b["mods"]
-        for cand in candidates:
-            sig = build_signature(b["mods"], cand, mainmod)
-            if sig not in used_sigs:
-                picked = cand
-                used_sigs.add(sig)
-                break
-        if picked is None:
-            for extra in ["ALT", "SHIFT", "CTRL"]:
-                cand = candidates[0]
-                sig = build_signature(b["mods"] + [extra], cand, mainmod)
-                if sig not in used_sigs:
-                    picked = cand
-                    picked_mods = b["mods"] + [extra]
-                    used_sigs.add(sig)
-                    break
-        if picked is None:
-            picked = candidates[0]
-        if norm_key(picked) != norm_key(b["basekey"]) or picked_mods != b["mods"]:
-            remapped_report.append((b["id"], b["basekey"], picked))
-        chosen[b["id"]] = (picked_mods, picked)
-
-    return chosen, mainmod, remapped_report
-
-def render_lines(chosen, mainmod):
-    lines = []
-    final_desc = []
-    for b in BINDS:
-        mods, key = chosen[b["id"]]
-        mod_literal = f'"{mainmod}"'
-        line = "hl.bind(" + b["action_tpl"].format(mod=mod_literal, key=key) + ")"
-        lines.append(line)
-        combo_parts = [mainmod if m == "MOD" else m for m in mods]
-        combo_parts.append(norm_key(key))
-        final_desc.append((" + ".join(combo_parts), b["desc"]))
-    return lines, final_desc
-
-def main():
-    content = read_file(HYPR_LUA)
-    os.makedirs(os.path.dirname(HYPR_LUA), exist_ok=True)
-
-    if MARK_START in content:
-        print("WARNING: a block installed previously by this script already exists in hyprland.lua.")
-        print("The file was not modified. Remove the block manually if you want to reinstall.")
-        sys.exit(3)
-
-    backup = HYPR_LUA + ".bak." + datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    if content:
-        with open(backup, "w", encoding="utf-8") as f:
-            f.write(content)
-
-    chosen, mainmod, remapped = resolve_binds(content)
-    bind_lines, final_desc = render_lines(chosen, mainmod)
-
-    autostart_block = (
-        '    hl.on("hyprland.start", function()\n'
-        '        hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6 > /tmp/infinite-desktop.log 2>&1")\n'
-        '    end)'
-    )
-
-    block = []
-    block.append("")
-    block.append(MARK_START)
-    block.append(f'-- mainMod detected/used: "{mainmod}"')
-    block.append(autostart_block)
-    block.append("")
-    block.append("-- Infinite desktop keybinds")
-    block.extend(bind_lines)
-    block.append(MARK_END)
-    block.append("")
-
-    new_content = content.rstrip("\n") + "\n" + "\n".join(block) + "\n"
-    with open(HYPR_LUA, "w", encoding="utf-8") as f:
-        f.write(new_content)
-
-    print(f"OK: hyprland.lua updated (backup at {backup})")
-    print(f"mainMod detected: {mainmod}")
-    print("")
-    if remapped:
-        print("The following keys were remapped due to conflicts with existing binds:")
-        for id_, orig, new in remapped:
-            print(f"  - {id_}: {orig} -> {new}")
-        print("")
-    print("=== New binds added by hyprland-infinite-desktop-v2 ===")
-    for combo, desc in final_desc:
-        print(f"  {combo:<28} -> {desc}")
-
-if __name__ == "__main__":
-    main()
-PYEOF
-}
-
-# main
-
-NEED_RELOGIN=0
-
-echo -e "${C_BOLD}hyprland-infinite-desktop-v2 installer${C_RESET}"
-echo "Source: ${REPO_DIR}"
-echo ""
-
-install_packages
-setup_input_group
-install_scripts
-write_patch_script
-patch_hyprland_config
-
-echo ""
-ok "Installation complete."
-echo ""
-echo "Remember:"
-echo "  - Reload Hyprland (hyprctl reload) or restart your session to apply the binds."
-if [ "${NEED_RELOGIN:-0}" -eq 1 ]; then
-    warn "  - You must log out / reboot for the 'input' group membership to take effect (required by python-evdev)."
+if [ "$HARD_FAIL" = 1 ]; then
+    log::error "a hard requirement is missing (see above)"
+    exit 1
 fi
+[ -n "$DRY" ] && log::ok "infinite-desktop (dry-run) complete" \
+             || log::ok "infinite-desktop complete — Hyprland config was NOT touched"
+exit 0

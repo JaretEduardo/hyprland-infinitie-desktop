@@ -26,8 +26,7 @@ config | config/hypr/lua/infinite-desktop.lua  | hypr/lua/infinite-desktop.lua
 
 # Quickshell, hypridle and hyprlock configs are added here by later stages.
 #
-# NOTE: the legacy `install.sh infinite-desktop` / patch_hyprland.py still
-# APPENDS to ~/.config/hypr/hyprland.lua. If that file is a symlink to the repo
-# copy, the patch would edit the repo. Stage 16 retires patch_hyprland.py and
-# moves the Infinite Desktop wiring into config/hypr/lua/infinite-desktop.lua.
-# Until then, do not run both `dotfiles --apply` and the legacy installer.
+# The Infinite Desktop autostart + keybinds are declared in
+# config/hypr/lua/infinite-desktop.lua (linked above). `install.sh
+# infinite-desktop` installs only the runtime scripts and no longer edits
+# hyprland.lua — the old patch_hyprland.py mechanism has been removed.

@@ -42,19 +42,23 @@ idempotent. See [INSTALL.md](INSTALL.md).
 ## Hyprland configuration
 
 Modern Lua config, targeting Hyprland ≥ 0.55. `config/hypr/hyprland.lua` is a
-tiny entrypoint that `require()`s ordered modules under `config/hypr/lua/`:
+tiny entrypoint that loads ordered modules under `config/hypr/lua/`. Each module
+is loaded via **`pcall(require, ...)`**, so a syntax error, runtime error, or
+missing file in one module is logged but does not stop the others — verified;
+plain `require()` propagates such errors. The individual modules stay
+pcall-free.
 
 | module | contents |
 | --- | --- |
 | `util.lua` | `load_optional()` — loads a machine-local file if present |
-| `env.lua` | cursor size; GPU note (AQ_DRM_DEVICES comes from a machine-local file) |
-| `monitors.lua` | generic `output = ""` fallback rule (no `eDP-1`, no resolution) |
+| `env.lua` | cursor size; loads `gpu.local.lua` (AQ_DRM_DEVICES) if present |
+| `monitors.lua` | generic `output = ""` fallback rule (no `eDP-1`, no resolution); loads `monitors.local.lua` |
 | `input.lua` | keyboard + touchpad base, 3-finger workspace swipe |
 | `appearance.lua` | minimal gaps / borders / layout; Quickshell owns the visuals later |
 | `bindings.lua` | basic desktop keybinds only |
 | `laptop.lua` | seam — XF86 media/brightness binds land here later |
 | `autostart.lua` | environment import + polkit agent only |
-| `infinite-desktop.lua` | seam — Infinite Desktop wiring lands here in a later stage |
+| `infinite-desktop.lua` | Infinite Desktop autostart + keybinds; the only seam to that component. Loaded last; `hl.unbind`s + rebinds `SUPER + arrows`. |
 
 ### Machine-local files
 
@@ -89,4 +93,9 @@ policy (`bin/nvidia-compute-mode`), and the permanent config are covered in
 
 An isolated component (`scripts/infinite-desktop/`) — an evdev daemon that pans
 floating windows, talking to Hyprland through a single compatibility layer
-(`hypr_ipc.py`). See [INFINITE-DESKTOP.md](INFINITE-DESKTOP.md).
+(`hypr_ipc.py`). Its integration with Hyprland is **declarative**:
+`config/hypr/lua/infinite-desktop.lua` holds the autostart + keybinds, linked in
+by `dotfiles`. `install.sh infinite-desktop` only installs the runtime scripts
+to `~/scripts/` — it does not edit the Hyprland config, install packages, or run
+`sudo`. (The old `patch_hyprland.py`, which appended to and remapped
+`hyprland.lua`, has been removed.) See [INFINITE-DESKTOP.md](INFINITE-DESKTOP.md).

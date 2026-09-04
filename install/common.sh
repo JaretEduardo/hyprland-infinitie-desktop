@@ -34,11 +34,10 @@ export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 _CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop"
 # Commands recognised but not implemented yet (added in later stages).
 _CMD_PLANNED="desktop power first-run full"
-# Of the implemented commands, those that actually honour --dry-run. 'check',
-# 'deps' and 'doctor' are read-only; 'gpu' and 'dotfiles' (without --apply) are
-# read-only too, and honour --dry-run with --apply. The legacy infinite-desktop
-# command does not, so --dry-run refuses for it.
-_CMD_DRYRUN_OK="check deps gpu doctor dotfiles"
+# Of the implemented commands, those that honour --dry-run. 'check', 'deps' and
+# 'doctor' are read-only; 'gpu', 'dotfiles' and 'infinite-desktop' show what
+# they would do and write nothing under --dry-run.
+_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop"
 
 common::usage() {
     cat <<'EOF'

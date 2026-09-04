@@ -28,9 +28,16 @@ used to ship inside `scripts/files.zip` (parts of which are now obsolete — see
 | Previous / next workspace | `SUPER + Z` / `SUPER + X` | native `hl.dsp.focus` |
 | Move window to previous / next workspace | `SUPER + SHIFT + Z/X` | native `hl.dsp.window.move` |
 
-The installer remaps any bind whose key combination is already taken in
-`hyprland.lua` (fallback ladders such as `Z → COMMA → MINUS → F13`), so the
-exact keys can differ from the table above on a given machine.
+These binds are **declarative**: `config/hypr/lua/infinite-desktop.lua` (linked
+into place by `install.sh dotfiles --apply`) is the single seam between Infinite
+Desktop and the Hyprland config. It is loaded last and `hl.unbind`s the four
+`SUPER + arrow` "move focus" binds from `lua/bindings.lua` before rebinding them
+to `navigate_windows.py` — the only overlap, resolved explicitly. Everything
+else is on keys `lua/bindings.lua` does not use.
+
+The old approach — an installer that parsed `hyprland.lua` and remapped
+colliding binds through fallback ladders (`Z → COMMA → MINUS → F13`) — is gone.
+`install.sh infinite-desktop` no longer touches the Hyprland config at all.
 
 ---
 
@@ -45,7 +52,7 @@ exact keys can differ from the table above on a given machine.
 
 ### 2.1 Autostart
 
-Hyprland starts the daemon on session start:
+`config/hypr/lua/infinite-desktop.lua` starts the daemon on session start:
 
 ```lua
 hl.on("hyprland.start", function()
@@ -61,7 +68,11 @@ arguments; devices are auto-detected (see 2.3).
 
 - The daemon opens input devices directly (`/dev/input/event*`), which is why the
   installing user must be in the **`input` group** (`sudo usermod -aG input $USER`,
-  effective after re-login).
+  effective after re-login). `install.sh infinite-desktop` checks this and
+  explains it but **never runs `usermod`**. Note that `input` group membership
+  grants any of your processes read access to *all* input events on the system;
+  a tighter model (an ACL, or a small privileged helper) can be chosen at
+  first-run.
 - A `device_manager` thread rescans for new/reconnected keyboards and mice
   (every 0.5 s for the first 20 s to let wireless dongles finish enumerating,
   then every 3 s). One reader thread is spawned per device; a disconnected
@@ -271,6 +282,14 @@ Once the working spelling is known, edit only the two functions named in 4.3.
   argument, so passing a device path as `argv[1]` would raise `ValueError`.
   Nothing called it (autostart runs the core directly).
 
+- **`patch_hyprland.py`** — a Python script the installer used to emit as a
+  heredoc and run against `~/.config/hypr/hyprland.lua`, appending an autostart
+  block + 21 keybinds and remapping any that collided with existing binds
+  through fallback ladders. Retired: the repo now owns the whole Hyprland config
+  (`config/hypr/`), so the integration is declarative
+  (`config/hypr/lua/infinite-desktop.lua`) and `install.sh infinite-desktop`
+  installs only the runtime scripts. Recoverable from git history.
+
 - The detailed rationale in this document was reconstructed from the
   `LEEME.md` inside `scripts/files.zip` and the docstring of
   `scripts/hypr_ipc.py`, both as they stood at commit `7436233` (the docstring
@@ -280,10 +299,13 @@ Once the working spelling is known, edit only the two functions named in 4.3.
 
 ## 7. Files
 
-All of these live in `scripts/infinite-desktop/` in the repository. The installer
-copies them **flat** into `~/scripts/`, which is why the Hyprland binds and the
-autostart line refer to `~/scripts/<name>` and the scripts locate each other with
-`os.path.dirname(__file__)` rather than a fixed path.
+All of these live in `scripts/infinite-desktop/` in the repository.
+`install.sh infinite-desktop` copies them **flat** into `~/scripts/` (identical
+files are a no-op; a locally modified one is backed up via `mv` and replaced
+only after you confirm), which is why the Hyprland binds and the autostart line
+refer to `~/scripts/<name>` and the scripts locate each other with
+`os.path.dirname(__file__)` rather than a fixed path. The command does not touch
+the Hyprland config, install packages, or run `sudo`/`usermod`.
 
 | File (under `scripts/infinite-desktop/`) | Role |
 | --- | --- |

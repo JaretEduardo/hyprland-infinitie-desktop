@@ -84,14 +84,22 @@ warning first. On Fedora, Gentoo-specific checks are `INFO`/`WARN`, not failures
 Exit codes: `0` = no errors (warnings alone are fine), `1` = one or more
 `[ERROR]` checks, `2` = bad arguments.
 
-### `infinite-desktop` — the Infinite Desktop component
+### `infinite-desktop` — the Infinite Desktop runtime component
 
 ```
 ./install.sh infinite-desktop
+./install.sh infinite-desktop --dry-run
 ```
 
-Installs `python-evdev`, adds your user to the `input` group, copies the
-Infinite Desktop scripts to `~/scripts/`, and adds the autostart + keybinds to
-`~/.config/hypr/hyprland.lua`. `./install-hyprland-infinite-desktop.sh` is a
+Installs the Infinite Desktop scripts into `~/scripts/` (identical files are a
+no-op; a locally modified one is backed up and replaced only after you confirm)
+and reports on the runtime requirements: `python3` / `python-evdev` / `jq`
+(install them with `install.sh deps`) and whether your user is in the `input`
+group (it explains what to run — `sudo usermod -aG input "$USER"` — but **never
+runs it**).
+
+It does **not** touch the Hyprland config. The autostart and keybinds are
+declared in `config/hypr/lua/infinite-desktop.lua`; link them in with
+`./install.sh dotfiles --apply`. `./install-hyprland-infinite-desktop.sh` is a
 compatibility wrapper for this command. See
 [INFINITE-DESKTOP.md](INFINITE-DESKTOP.md).

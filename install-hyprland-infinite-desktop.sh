@@ -113,8 +113,11 @@ patch_hyprland_config() {
     log "Updating ${HYPR_LUA} (autostart + keybinds)..."
     mkdir -p "$(dirname "${HYPR_LUA}")"
 
-    python3 "${TMP_DIR}/patch_hyprland.py" "${HYPR_LUA}" "${SCRIPTS_DEST}"
-    STATUS=$?
+    # 'set -e' would abort the script before we can read $? on any non-zero
+    # exit, including the expected code 3. Capture it in the same command list
+    # instead, without disabling errexit globally.
+    local STATUS=0
+    python3 "${TMP_DIR}/patch_hyprland.py" "${HYPR_LUA}" "${SCRIPTS_DEST}" || STATUS=$?
 
     if [ "$STATUS" -eq 3 ]; then
         warn "hyprland.lua was not modified (already installed before)."

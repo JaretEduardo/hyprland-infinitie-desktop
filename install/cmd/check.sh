@@ -21,6 +21,8 @@ fi
 . "$REPO_DIR/lib/ui.sh"
 # shellcheck source=lib/hardware.sh
 . "$REPO_DIR/lib/hardware.sh"
+# shellcheck source=lib/profile.sh
+. "$REPO_DIR/lib/profile.sh"
 
 VERBOSE="${INSTALL_VERBOSE:-${LOG_VERBOSE:-}}"
 
@@ -92,6 +94,12 @@ bd_v=$(_val machine.board_vendor "$m_block"); bd_n=$(_val machine.board_name "$m
 bi_v=$(_val machine.bios_vendor "$m_block"); bi_r=$(_val machine.bios_version "$m_block"); bi_d=$(_val machine.bios_date "$m_block")
 [ -n "$bi_v$bi_r" ] && ui::kv "Firmware" "$(printf '%s %s%s' "$bi_v" "$bi_r" "${bi_d:+  ($bi_d)}" | sed 's/^ *//')"
 ch=$(_val machine.chassis "$m_block"); [ -n "$ch" ] && ui::kv "Chassis" "$ch"
+prof_id=$(profile::detect)
+if [ "$prof_id" = common ]; then
+    ui::kv "Profile" "common  (no machine-specific profile matched — install.sh profile for detail)"
+else
+    ui::kv "Profile" "$prof_id  ($(profile::get name "$prof_id"))"
+fi
 
 # ---- CPU ------------------------------------------------------------------
 ui::section "CPU"

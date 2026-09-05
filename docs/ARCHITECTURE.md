@@ -17,7 +17,11 @@ lib/
   hardware.sh                  read-only hardware detection (PCI/sysfs, no cardN)
   portage.sh                   read-only Portage / overlay / catalogue helpers
   nvidia.sh                    read-only, power-aware NVIDIA observation (no-wake)
+  profile.sh                   read-only machine-profile detection/validation
   backup.sh  symlink.sh        safe, non-destructive dotfile primitives
+profiles/
+  common/profile.conf          workstation defaults, matches no specific machine
+  <machine-id>/profile.conf    DMI-matched, machine-specific expectations (see PROFILES.md)
 bin/
   nvidia-offload                PRIME render-offload wrapper
   nvidia-compute-mode           NVIDIA compute-session backend (eco / compute / set-backend)
@@ -54,6 +58,14 @@ after `deps` (with `doctor` still run at the end as a read-only snapshot),
 and keeps `gpu --apply` / `power --apply` plan-only on a non-Gentoo host —
 the two steps that write real files under `/etc` are never applied for real
 off the Gentoo target.
+
+`profile` sits underneath `check`/`doctor`/`first-run`, not beside them in
+the sequence: it detects which `profiles/<id>/` applies to the real machine
+by DMI data alone (never the hostname), falling back to `profiles/common/`
+with a warning if none match, and validates that profile's hardware
+expectations against `lib/hardware.sh` (a mismatch is a warning, never
+fatal). It is read-only — there is no `--apply`, since which profile applies
+is a detected fact, not a decision to write. See [PROFILES.md](PROFILES.md).
 
 `monitor` and `first-run` are the two commands for what genuinely cannot be
 decided without a real Gentoo + Hyprland session: `monitor` reads

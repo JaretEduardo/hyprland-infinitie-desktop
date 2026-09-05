@@ -68,15 +68,20 @@ fi
                  || log::info "read-only checklist. Re-run with --apply to work through pending items."
 
 # ============================================================================
-# 1. Baseline: Gentoo, Hyprland >=0.55, Quickshell, dotfiles, AMD/NVIDIA
+# 1. Baseline: machine profile, Gentoo, Hyprland >=0.55, Quickshell,
+#    dotfiles, AMD/NVIDIA
 # ============================================================================
-# Reuses: install.sh check + install.sh dotfiles (plan). Neither is
-# reimplemented here — their own output already answers every item in this
-# section (Gentoo, Hyprland version, qs, AMD-primary/NVIDIA-secondary,
-# dotfiles linked, input group, NetworkManager, PipeWire/WirePlumber,
-# hypridle/hyprlock/brightnessctl binaries). doctor (section 6) repeats the
-# [OK]/[WARN] verdict on all of it; check/dotfiles here are the detail.
-_section "Baseline (install.sh check, install.sh dotfiles)"
+# Reuses: install.sh profile + install.sh check + install.sh dotfiles (plan).
+# None of these are reimplemented here — their own output already answers
+# every item in this section (which machine profile applies and whether its
+# hardware expectations hold, Gentoo, Hyprland version, qs,
+# AMD-primary/NVIDIA-secondary, dotfiles linked, input group,
+# NetworkManager, PipeWire/WirePlumber, hypridle/hyprlock/brightnessctl
+# binaries). doctor (section 6) repeats the [OK]/[WARN] verdict on all of
+# it; profile/check/dotfiles here are the detail.
+_section "Baseline (install.sh profile, install.sh check, install.sh dotfiles)"
+bash "$CMD_DIR/profile.sh" || true
+printf '\n'
 bash "$CMD_DIR/check.sh" || true
 printf '\n'
 if [ "$APPLY" = 1 ]; then bash "$CMD_DIR/dotfiles.sh" --apply || true

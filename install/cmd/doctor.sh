@@ -25,6 +25,8 @@ else REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"; fi
 . "$REPO_DIR/lib/log.sh"
 # shellcheck source=lib/hardware.sh
 . "$REPO_DIR/lib/hardware.sh"
+# shellcheck source=lib/profile.sh
+. "$REPO_DIR/lib/profile.sh"
 # shellcheck source=lib/portage.sh
 . "$REPO_DIR/lib/portage.sh"
 # shellcheck source=lib/nvidia.sh
@@ -110,6 +112,23 @@ for i in $(awk -F. '/^net\.[0-9]+\.name=/{print $2}' <<<"$n" | sort -nu); do
     [ "$nt" = virtual ] && continue
     [ "$ndr" = none ] && _warn "$nt $nm — no driver bound" || _ok "$nt $nm — driver $ndr"
 done
+
+# ---- machine profile ---------------------------------------------------
+_sec "Machine profile"
+prof_id=$(profile::detect)
+if [ "$prof_id" = common ]; then
+    _info "no machine-specific profile matched — using 'common' (install.sh profile for detail)"
+else
+    _ok "profile match: $prof_id ($(profile::get name "$prof_id"))"
+    pv=$(profile::validate "$prof_id")
+    pidx=$(awk -F. '/^validate\.[0-9]+\.item=/{print $2}' <<<"$pv" | sort -nu)
+    for i in $pidx; do
+        item=$(_v "validate.$i.item" "$pv")
+        st=$(_v "validate.$i.status" "$pv")
+        det=$(_v "validate.$i.detail" "$pv")
+        [ "$st" = ok ] && _ok "$item" || _warn "$item${det:+  ($det)}"
+    done
+fi
 
 # ---- AMD primary ------------------------------------------------------
 _sec "Compositor GPU"

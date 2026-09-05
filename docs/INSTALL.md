@@ -27,11 +27,28 @@ remaining command (`full`) lands.
 ./install.sh check
 ```
 
-Prints OS / kernel / init, machine model, CPU, every GPU (driver, PCI IDs,
-`/dev/dri/by-path`) and the primary GPU, network interfaces, power supplies,
-backlight, DRM connectors, and which base tools are installed. Works on any
-distribution — it is a useful pre-check on Fedora before switching to Gentoo.
-Never runs `nvidia-smi`; never changes anything.
+Prints OS / kernel / init, machine model (and which [machine profile](PROFILES.md)
+applies), CPU, every GPU (driver, PCI IDs, `/dev/dri/by-path`) and the
+primary GPU, network interfaces, power supplies, backlight, DRM connectors,
+and which base tools are installed. Works on any distribution — it is a
+useful pre-check on Fedora before switching to Gentoo. Never runs
+`nvidia-smi`; never changes anything.
+
+### `profile` — which machine profile applies
+
+```
+./install.sh profile             # detect + show hardware-expectation checks
+./install.sh profile --json      # same, as one JSON line
+```
+
+Detects which `profiles/<id>/` applies to this real machine by DMI data
+alone (`/sys/class/dmi/id/*` — never the hostname), falling back to
+`profiles/common/` with a warning if nothing more specific matches, then
+validates that profile's declared hardware expectations (GPU/Wi-Fi/Ethernet
+PCI IDs, CPU vendor, battery, backlight) against `lib/hardware.sh`. A
+mismatch is a warning, never fatal — hardware and PCI enumeration legitimately
+vary. Read-only; there is no `--apply` because which profile applies is a
+detected fact, not a decision to write. See [PROFILES.md](PROFILES.md).
 
 ### `deps` — Gentoo package plan
 
@@ -70,11 +87,13 @@ See [HYBRID-GPU.md](HYBRID-GPU.md).
 ```
 
 Evaluates the workstation and marks each check `[OK]` / `[WARN]` / `[ERROR]` /
-`[INFO]`: system, distro, hardware and drivers, AMD-as-primary, NVIDIA power
-state, `nvidia-compute-mode` policy, the stage-`gpu` config, NVIDIA sleep
-services, Gentoo overlays and required packages, NetworkManager, PipeWire,
-Hyprland/Quickshell tools (and Hyprland version — flags `< 0.55`), battery,
-backlight, and the `input` group / `evdev` needed by Infinite Desktop.
+`[INFO]`: system, distro, [machine profile](PROFILES.md) (including its
+hardware-expectation validation), hardware and drivers, AMD-as-primary,
+NVIDIA power state, `nvidia-compute-mode` policy, the stage-`gpu` config,
+NVIDIA sleep services, Gentoo overlays and required packages, NetworkManager,
+PipeWire, Hyprland/Quickshell tools (and Hyprland version — flags `< 0.55`),
+battery, backlight, and the `input` group / `evdev` needed by Infinite
+Desktop.
 
 It fixes nothing. NVIDIA checks use only the no-wake probe — `doctor` never runs
 `nvidia-smi` and will not be what keeps the GPU awake. `--nvidia-deep` opts into
@@ -183,8 +202,9 @@ confirmed, and backed up first. See
 ./install.sh first-run --apply     # work through pending items, each confirmed
 ```
 
-Reuses `check`, `dotfiles`, `monitor`, `doctor` and `nvidia-compute-mode`
-directly — nothing here re-implements what those already do. Adds two things
+Reuses `profile`, `check`, `dotfiles`, `monitor`, `doctor` and
+`nvidia-compute-mode` directly — nothing here re-implements what those
+already do. Adds two things
 that exist nowhere else: a guided walkthrough of the expected XF86 keysyms
 against `wev` (no automation — physical key presses can't be simulated, the
 user confirms), and a guided, reversible test of the NVIDIA `power-control`

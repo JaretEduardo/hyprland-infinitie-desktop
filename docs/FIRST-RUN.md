@@ -3,9 +3,17 @@
 `install.sh first-run` walks through everything below in order (plan mode is
 read-only; `--apply` offers to resolve each pending item, with its own
 confirmation). It does not reimplement any of these checks — it calls
-`install.sh check` / `dotfiles` / `monitor` / `doctor` and
+`install.sh profile` / `check` / `dotfiles` / `monitor` / `doctor` and
 `nvidia-compute-mode` directly; this document is the detail behind each
 section, and the reference `wev` table it shows verbatim.
+
+## Machine profile (`install.sh profile`)
+
+The first thing first-run shows is which [machine profile](PROFILES.md)
+applies — detected from real DMI data, never the hostname — and whether its
+declared hardware expectations hold. This is purely informational context
+for everything that follows; it changes nothing and is not itself a pending
+item to resolve.
 
 ## Monitor configuration (`install.sh monitor`)
 

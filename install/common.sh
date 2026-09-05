@@ -31,14 +31,14 @@ export INSTALL_DRY_RUN="${INSTALL_DRY_RUN:-}"
 export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 
 # Commands with a real implementation today (one script per name in install/cmd/).
-_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run"
+_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run profile"
 # Commands recognised but not implemented yet (added in later stages).
 _CMD_PLANNED="full"
-# Of the implemented commands, those that honour --dry-run. 'check', 'deps' and
-# 'doctor' are read-only; 'gpu', 'dotfiles', 'infinite-desktop', 'power',
-# 'desktop', 'monitor' and 'first-run' show what they would do and write
-# nothing under --dry-run.
-_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run"
+# Of the implemented commands, those that honour --dry-run. 'check', 'deps',
+# 'doctor' and 'profile' are read-only; 'gpu', 'dotfiles', 'infinite-desktop',
+# 'power', 'desktop', 'monitor' and 'first-run' show what they would do and
+# write nothing under --dry-run.
+_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run profile"
 
 common::usage() {
     cat <<'EOF'
@@ -50,6 +50,8 @@ Usage:
 Commands:
   help                Show this help
   check               Read-only system report (works on any distro)
+  profile             Detect which machine profile applies (read-only;
+                      profiles/common vs. profiles/<machine-id>)
   deps                Detect missing Gentoo packages/overlays, print the commands
   gpu                 Hybrid AMD/NVIDIA + RTD3 config (plan; --apply to write)
   doctor              Read-only diagnostics ([OK]/[WARN]/[ERROR]/[INFO])

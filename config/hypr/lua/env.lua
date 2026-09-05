@@ -30,8 +30,10 @@ end
 -- The correct value depends on this machine's PCI addresses / the stable
 -- /dev/dri/hypr-primary and /dev/dri/hypr-secondary symlinks that
 -- `install.sh gpu` creates, so it is NOT hardcoded here (no card0/card1).
--- `install.sh desktop` writes it to ~/.config/hypr/gpu.local.lua as e.g.
+-- Nothing writes it automatically: `install.sh gpu` only PRINTS the line
+-- below for you to copy into a hand-written, git-ignored gpu.local.lua, if
+-- you ever need to pin it explicitly —
 --     hl.env("AQ_DRM_DEVICES", "/dev/dri/hypr-primary:/dev/dri/hypr-secondary")
--- Until then, Aquamarine auto-selects the boot_vga GPU (the AMD iGPU on this
--- laptop), which is the desired result anyway.
+-- Without one, Aquamarine auto-selects the boot_vga GPU (the AMD iGPU on
+-- this laptop), which is the desired result anyway.
 require("lua/util").load_optional("gpu.local.lua")

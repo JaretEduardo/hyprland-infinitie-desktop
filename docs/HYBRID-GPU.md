@@ -82,8 +82,12 @@ listed too because an external monitor wired to it (the HDMI port on this
 laptop is on the NVIDIA GPU) only works if its card is in the list — and
 community reports show listing *only* the iGPU can hang session startup.
 
-The `desktop` stage wires this line into the Hyprland config; `install.sh gpu`
-only prints it and installs the udev rule it depends on.
+Nothing wires this line into the Hyprland config automatically: `install.sh
+gpu` only prints it (and installs the udev rule it depends on) — copy it
+into a hand-written, git-ignored `~/.config/hypr/gpu.local.lua` if you ever
+need to pin it explicitly. Without one, Aquamarine already auto-selects the
+`boot_vga` GPU (AMD on this laptop) on its own, which is the desired result
+anyway — see `config/hypr/lua/env.lua`.
 
 ---
 

@@ -262,7 +262,9 @@ printf '\n'
 {
     printf -- '-- monitors.local.lua — MACHINE-LOCAL, GENERATED. Not tracked by git.\n'
     printf -- '-- Written by `install.sh monitor` from this machine'"'"'s real, live Hyprland\n'
-    printf -- '-- monitor state (hyprctl -j monitors) on %s.\n' "$(date -Iseconds 2>/dev/null || date)"
+    printf -- '-- monitor state (hyprctl -j monitors). No timestamp on purpose: identical\n'
+    printf -- '-- monitor state must always regenerate byte-identical content, so re-running\n'
+    printf -- '-- this command is a real no-op instead of rewriting/backing up every time.\n'
     printf -- '-- Re-run `install.sh monitor --apply` after changing monitors; do not hand-edit\n'
     printf -- '-- unless you also stop running that command, since it will overwrite this file\n'
     printf -- '-- (with confirmation + backup) the next time it runs.\n'

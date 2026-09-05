@@ -11,7 +11,8 @@
 --
 -- Machine-local, git-ignored overrides live beside this file as
 --   ~/.config/hypr/monitors.local.lua   (written by: install.sh first-run / monitor)
---   ~/.config/hypr/gpu.local.lua         (written by: install.sh desktop)
+--   ~/.config/hypr/gpu.local.lua         (optional, hand-written — install.sh gpu
+--                                          only prints the AQ_DRM_DEVICES line)
 --   ~/.config/hypr/input.local.lua       (optional, hand-written)
 --   ~/.config/hypr/laptop.local.lua      (optional, hand-written)
 -- The relevant module loads them if present (see lua/util.lua).

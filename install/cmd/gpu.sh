@@ -131,7 +131,9 @@ fi
 ui::section "Hyprland compositor GPU (AQ_DRM_DEVICES)"
 AQ_VALUE="/dev/dri/hypr-primary:/dev/dri/hypr-secondary"
 ui::kv "recommended value" "$AQ_VALUE"
-printf '  Add ONE of these to your Hyprland config (the desktop stage will wire it in):\n'
+printf '  Add ONE of these to a hand-written ~/.config/hypr/gpu.local.lua yourself if you\n'
+printf '  ever need to override the default (nothing wires it in automatically — without\n'
+printf '  one, Aquamarine already auto-selects the boot_vga GPU, which is AMD here):\n'
 printf '    hyprlang:  env = AQ_DRM_DEVICES,%s\n' "$AQ_VALUE"
 printf '    lua:       hl.env("AQ_DRM_DEVICES", "%s")\n' "$AQ_VALUE"
 printf '  AMD first = compositor GPU; NVIDIA listed so its HDMI output still works.\n'

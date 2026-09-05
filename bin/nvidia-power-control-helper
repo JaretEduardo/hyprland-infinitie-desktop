@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# nvidia-power-control-helper — the ONE privileged action the "power-control"
+# NVIDIA compute backend needs: flip the discovered NVIDIA GPU's
+# power/control sysfs knob between "auto" and "on". Nothing else.
+#
+# NOT installed anywhere by any --apply flow in this repo yet. This is
+# prepared infrastructure — see docs/HYBRID-GPU.md "Privilege boundary" for
+# the manual installation steps and why they are manual for now: the
+# authorization boundary below has not been validated on real Gentoo
+# hardware, and this project's rule is not to improvise that without
+# validation. Until installed, bin/nvidia-compute-mode's existing behaviour
+# (print the exact `sudo` command, do nothing) is unchanged.
+#
+# Design, so this is safe to grant via polkit even though it edits sysfs:
+#   - takes EXACTLY one argument: the literal string "auto" or "on" — no
+#     other value, no sysfs path, no filename is ever accepted from the
+#     caller
+#   - the sysfs path is derived HERE, the same way lib/nvidia.sh does
+#     (first PCI display-class device bound to the nvidia driver) — the
+#     caller cannot point it at a different device or a different file
+#   - refuses to run unless it is actually root (a human running it directly
+#     with plain "sudo" still works; the intended real path is
+#     `pkexec nvidia-power-control-helper <auto|on>`, gated by the polkit
+#     policy in config/polkit/actions/)
+#   - no daemon, no state, no lock file — reads the current value, and only
+#     writes if it differs; never touches anything else under /sys
+#
+set -euo pipefail
+
+_die() { printf 'nvidia-power-control-helper: %s\n' "$1" >&2; exit "${2:-1}"; }
+
+[ "$#" -eq 1 ] || _die "usage: nvidia-power-control-helper <auto|on>" 2
+TARGET="$1"
+case "$TARGET" in
+    auto|on) ;;
+    *) _die "refusing: argument must be exactly 'auto' or 'on' (got '$TARGET')" 2 ;;
+esac
+
+[ "$(id -u)" = 0 ] || _die "must run as root — invoke via: pkexec nvidia-power-control-helper $TARGET" 1
+
+# Discover the NVIDIA PCI device ourselves — never accept a path argument.
+# Same class/vendor test as lib/hardware.sh's hw::gpus, kept standalone here
+# so this helper has no dependency on the rest of the repo once installed.
+_nvidia_pci=""
+for d in /sys/bus/pci/devices/*; do
+    [ -r "$d/class" ] || continue
+    case "$(cat "$d/class" 2>/dev/null)" in 0x03*) ;; *) continue ;; esac
+    [ -r "$d/vendor" ] || continue
+    [ "$(cat "$d/vendor" 2>/dev/null)" = "0x10de" ] || continue
+    _nvidia_pci="${d##*/}"
+    break
+done
+[ -n "$_nvidia_pci" ] || _die "no NVIDIA PCI display device found" 1
+
+PATH_CTRL="/sys/bus/pci/devices/$_nvidia_pci/power/control"
+[ -e "$PATH_CTRL" ] || _die "no power/control node at $PATH_CTRL" 1
+
+CUR="$(cat "$PATH_CTRL" 2>/dev/null || echo unknown)"
+if [ "$CUR" = "$TARGET" ]; then
+    printf 'nvidia-power-control-helper: %s already %s\n' "$PATH_CTRL" "$TARGET"
+    exit 0
+fi
+
+printf '%s' "$TARGET" > "$PATH_CTRL"
+printf 'nvidia-power-control-helper: %s -> %s (was %s)\n' "$PATH_CTRL" "$TARGET" "$CUR"

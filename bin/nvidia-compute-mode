@@ -1,0 +1,422 @@
+#!/usr/bin/env bash
+#
+# nvidia-compute-mode — NVIDIA compute-session backend.
+#
+# Represents two SEPARATE things:
+#
+#   1. Requested policy (persisted, per-user):   eco | compute
+#   2. Observed state (read live, no-wake):       runtime_pm_state (active/suspended/…),
+#                                                 pci_power_state (D0/D3hot/D3cold/unknown)
+#
+# "active" is NOT a selectable policy — it is only ever observed.
+#
+# ECO (default)
+#   Let runtime PM / RTD3 do its job: the GPU sleeps when it has no clients and
+#   CUDA can still wake it automatically. `eco` only ensures power/control=auto.
+#   It never unloads modules, never does PCI remove/rescan, never kills clients.
+#
+# COMPUTE
+#   A temporary session where the GPU is kept prepared/awake. The mechanism is
+#   an abstract backend, NOT hardcoded:
+#
+#     compute_backend = auto           (unresolved; pick a real one at Gentoo first-run)
+#                       power-control  (write "on" to the PCI power/control knob)
+#                       persistenced   (run nvidia-persistenced — only if verified on this HW)
+#                       none           (record intent only; apply nothing)
+#
+#   Nothing here assumes persistenced works on a given laptop, uses nvidia-smi
+#   persistence mode, runs a home-grown CUDA daemon, or (un)loads modules.
+#
+# PRIVILEGE BOUNDARY
+#   status / status --json / status --deep : fully unprivileged.
+#   eco / compute                          : may need root to write power/control
+#     or manage a service. This CLI NEVER calls sudo. If it lacks privilege it
+#     prints the exact command that is missing and exits non-zero WITHOUT
+#     recording the policy as applied. The single privileged action is
+#     _nvcm::apply_control() — a future polkit action or udev rule can wrap
+#     exactly that.
+#
+# NO-WAKE
+#   status and status --json use ONLY nvidia::probe_nowake / nvidia::json_nowake.
+#   No automatic nvidia-smi in ECO. `status --deep` is explicitly WAKE-CAPABLE
+#   and warns before running nvidia-smi.
+#
+# JSON  (schema "nvidia-compute-mode/v1", stable — consumed later by Quickshell)
+#   { "schema","policy","backend","backend_active","present","runtime_pm_state",
+#     "pci_power_state","d3cold_confirmed","power_control","d3cold_allowed",
+#     "driver","module_version","clients_detected","clients":[{pid,comm}],
+#     "runtime_suspended_time_ms","runtime_active_time_ms" }
+#   with --deep, an extra "deep" object (or null).
+#
+# STATE  $NVCM_STATE_DIR  (default $XDG_STATE_HOME/nvidia-compute-mode,
+#   i.e. ~/.local/state/nvidia-compute-mode). Never inside the repo checkout.
+#   Files: policy, backend. Default when absent: policy=eco, backend=auto.
+#   (The *effect* — power/control — is system-global; the recorded policy is
+#    per-user, which is fine for a single-user workstation.)
+
+set -euo pipefail
+
+# --- locate lib/nvidia.sh -------------------------------------------------
+_nvcm_self="${BASH_SOURCE[0]}"
+while [ -h "$_nvcm_self" ]; do
+    _d=$(cd -P "$(dirname "$_nvcm_self")" >/dev/null 2>&1 && pwd)
+    _nvcm_self=$(readlink "$_nvcm_self"); case "$_nvcm_self" in /*) ;; *) _nvcm_self="$_d/$_nvcm_self" ;; esac
+done
+_NVCM_BIN_DIR=$(cd -P "$(dirname "$_nvcm_self")" >/dev/null 2>&1 && pwd)
+
+if [ -n "${NVCM_LIB_DIR:-}" ]; then
+    _NVCM_LIB="$NVCM_LIB_DIR"
+elif [ -n "${INSTALL_REPO_DIR:-}" ]; then
+    _NVCM_LIB="$INSTALL_REPO_DIR/lib"
+else
+    _NVCM_LIB="$(cd "$_NVCM_BIN_DIR/../lib" 2>/dev/null && pwd || true)"
+fi
+if [ -z "$_NVCM_LIB" ] || [ ! -r "$_NVCM_LIB/nvidia.sh" ]; then
+    printf 'nvidia-compute-mode: cannot find lib/nvidia.sh (looked in "%s")\n' "$_NVCM_LIB" >&2
+    printf '  set NVCM_LIB_DIR or INSTALL_REPO_DIR\n' >&2
+    exit 1
+fi
+# shellcheck source=lib/nvidia.sh
+. "$_NVCM_LIB/nvidia.sh"
+# lib/log.sh is optional; fall back to plain stderr helpers
+if [ -r "$_NVCM_LIB/log.sh" ]; then
+    # shellcheck source=lib/log.sh
+    . "$_NVCM_LIB/log.sh"
+else
+    log::info()  { printf '[INFO] %s\n'  "$*" >&2; }
+    log::ok()    { printf '[OK] %s\n'    "$*" >&2; }
+    log::warn()  { printf '[WARN] %s\n'  "$*" >&2; }
+    log::error() { printf '[ERROR] %s\n' "$*" >&2; }
+fi
+
+# --- config / state ----------------------------------------------------
+NVCM_STATE_DIR="${NVCM_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/nvidia-compute-mode}"
+POLICY_FILE="$NVCM_STATE_DIR/policy"
+BACKEND_FILE="$NVCM_STATE_DIR/backend"
+DEFAULT_POLICY=eco
+DEFAULT_BACKEND=auto
+
+DRY_RUN="${INSTALL_DRY_RUN:-}"
+JSON=0
+DEEP=0
+
+_nvcm::read_policy() {
+    local v=""
+    [ -r "$POLICY_FILE" ] && IFS= read -r v < "$POLICY_FILE" 2>/dev/null || true
+    case "$v" in eco|compute) printf '%s' "$v" ;; *) printf '%s' "$DEFAULT_POLICY" ;; esac
+}
+_nvcm::read_backend() {
+    # a system-wide override wins if a later stage installs one
+    local v=""
+    if [ -r /etc/nvidia-compute-mode/backend ]; then
+        IFS= read -r v < /etc/nvidia-compute-mode/backend 2>/dev/null || true
+    elif [ -r "$BACKEND_FILE" ]; then
+        IFS= read -r v < "$BACKEND_FILE" 2>/dev/null || true
+    fi
+    case "$v" in auto|power-control|persistenced|none) printf '%s' "$v" ;; *) printf '%s' "$DEFAULT_BACKEND" ;; esac
+}
+_nvcm::write_policy() {
+    # Always persist on an explicit command: predictable and idempotent
+    # (re-writing the same value is a no-op in effect).
+    mkdir -p "$NVCM_STATE_DIR"
+    printf '%s\n' "$1" > "$POLICY_FILE"
+}
+
+# is a keep-awake mechanism actually in effect right now?
+_nvcm::backend_active() {
+    case "$(_nvcm::read_backend)" in
+        power-control) [ "$(nvidia::power_control)" = on ] && echo true || echo false ;;
+        persistenced)  systemctl is-active --quiet nvidia-persistenced 2>/dev/null && echo true || echo false ;;
+        *)             echo false ;;
+    esac
+}
+
+# --- the single privileged action ------------------------------------
+# _nvcm::apply_control <auto|on>
+#   0  = target reached (either already there, or we changed it)
+#   2  = privilege required (nothing changed)
+#   1  = error
+_nvcm::apply_control() {
+    local target="$1" path cur
+    path="/sys/bus/pci/devices/$(nvidia::pci)/power/control"
+    [ -e "$path" ] || { log::error "no power/control node at $path"; return 1; }
+    cur=$(cat "$path" 2>/dev/null || echo unknown)
+
+    if [ "$cur" = "$target" ]; then
+        return 0
+    fi
+    if [ -n "$DRY_RUN" ]; then
+        log::info "dry-run: would write '$target' to $path  (currently '$cur')"
+        return 0
+    fi
+    if [ -w "$path" ] || [ "$(id -u)" = 0 ]; then
+        printf '%s' "$target" > "$path" 2>/dev/null || { log::error "write to $path failed"; return 1; }
+        return 0
+    fi
+
+    # No direct privilege. If the (not installed by default — see
+    # docs/HYBRID-GPU.md "Privilege boundary") polkit-gated helper is present
+    # at its fixed system path, use it: pkexec shows a native prompt (the
+    # already-autostarted hyprpolkitagent renders it), never a terminal sudo
+    # prompt. Nothing here calls sudo, ever.
+    local helper="/usr/local/libexec/hyprland-infinite-desktop/nvidia-power-control-helper"
+    if command -v pkexec >/dev/null 2>&1 && [ -x "$helper" ]; then
+        if pkexec "$helper" "$target"; then
+            return 0
+        fi
+        log::warn "pkexec $helper $target did not succeed (declined, or not authorized)"
+        return 2
+    fi
+
+    log::warn "changing power/control from '$cur' to '$target' needs root:"
+    printf "    echo %s | sudo tee %s\n" "$target" "$path" >&2
+    printf "  nvidia-compute-mode does not call sudo. bin/nvidia-power-control-helper +\n" >&2
+    printf "  config/polkit/actions/ are prepared for this (pkexec, no terminal sudo) but\n" >&2
+    printf "  are not installed automatically — see docs/HYBRID-GPU.md.\n" >&2
+    return 2
+}
+
+_nvcm::show_clients() {
+    local clients p c
+    clients=$(nvidia::clients)
+    [ -n "$clients" ] || return 0
+    printf 'Detected NVIDIA clients (best-effort; NOT terminated):\n'
+    while IFS=$'\t' read -r p c; do
+        [ -n "$p" ] && printf '  - %s (pid %s)\n' "$c" "$p"
+    done <<<"$clients"
+}
+
+# --- commands -----------------------------------------------------------
+
+_nvcm::cmd_status() {
+    local policy backend nowake
+    policy=$(_nvcm::read_policy)
+    backend=$(_nvcm::read_backend)
+
+    if [ "$JSON" = 1 ]; then
+        nowake=$(nvidia::json_nowake)
+        local deep="null"
+        if [ "$DEEP" = 1 ]; then deep=$(_nvcm::deep_json); fi
+        printf '{"schema":"nvidia-compute-mode/v1","policy":"%s","backend":"%s","backend_active":%s,"deep":%s,%s\n' \
+            "$policy" "$backend" "$(_nvcm::backend_active)" "$deep" "${nowake#\{}"
+        return 0
+    fi
+
+    # human
+    printf 'Policy:            %s%s\n' "$policy" "$([ "$policy" = "$DEFAULT_POLICY" ] && echo '  (default)')"
+    printf 'Backend:           %s' "$backend"
+    case "$backend" in
+        auto) printf '  (unresolved — no keep-awake mechanism; resolve on Gentoo first-run)\n' ;;
+        none) printf '  (records intent only)\n' ;;
+        *)    printf '  (active: %s)\n' "$(_nvcm::backend_active)" ;;
+    esac
+
+    if ! nvidia::present; then
+        printf 'NVIDIA GPU:        not present\n'
+        return 0
+    fi
+    printf 'NVIDIA GPU:        %s   driver %s   module %s\n' \
+        "$(nvidia::pci)" "$(nvidia::driver)" "$(nvidia::module_version)"
+    printf 'Runtime PM:        %s\n' "$(nvidia::runtime_pm_state)"
+    printf 'PCI power state:   %s%s\n' "$(nvidia::pci_power_state)" \
+        "$(nvidia::d3cold_confirmed && echo '   (D3cold confirmed)' || true)"
+    printf 'power/control:     %s\n' "$(nvidia::power_control)"
+    printf 'd3cold_allowed:    %s\n' "$(nvidia::d3cold_allowed)"
+    local n; n=$(nvidia::clients | grep -c . || true)
+    printf 'Clients detected:  %s\n' "$n"
+    [ "$n" -gt 0 ] && nvidia::clients | while IFS=$'\t' read -r p c; do
+        [ -n "$p" ] && printf '  - %s (pid %s)\n' "$c" "$p"
+    done
+
+    if [ "$DEEP" = 1 ]; then
+        printf '\n'
+        log::warn "--deep runs nvidia-smi, which may power the GPU on from RTD3"
+        printf '%s\n' "--- deep (WAKE-CAPABLE) ---"
+        nvidia::probe_deep
+    fi
+    return 0
+}
+
+# deep metrics as JSON (or null). WAKE-CAPABLE. Only from an explicit --deep.
+_nvcm::deep_json() {
+    local out; out=$(nvidia::probe_deep 2>/dev/null) || true
+    [ -n "$out" ] || { printf 'null'; return 0; }
+    awk -F= '
+        /^nvidia\.deep\.WARNING=/ { next }
+        /^nvidia\.deep\.error=/   { print "{\"error\":\"" $2 "\"}"; done=1; exit }
+        /^nvidia\.deep\.proc\./   { k=$1; sub(/^nvidia\.deep\.proc\./,"",k);
+                                    procs = procs (procs?",":"") "{\"pid\":\"" k "\",\"info\":\"" $2 "\"}"; next }
+        /^nvidia\.deep\./         { k=$1; sub(/^nvidia\.deep\./,"",k);
+                                    obj = obj (obj?",":"") "\"" k "\":\"" $2 "\"" }
+        END { if (!done) print "{" obj (procs ? ",\"processes\":[" procs "]" : "") "}" }
+    ' <<<"$out"
+}
+
+_nvcm::cmd_eco() {
+    if ! nvidia::present; then
+        log::warn "no NVIDIA GPU present — nothing to apply"
+        return 0
+    fi
+    local before_policy; before_policy=$(_nvcm::read_policy)
+    printf 'Applying policy: ECO\n'
+
+    local rc=0
+    _nvcm::apply_control auto || rc=$?
+    if [ "$rc" = 2 ]; then
+        log::error "could not restore RTD3 (power/control=auto). Policy left as '$before_policy'."
+        return 2
+    elif [ "$rc" != 0 ]; then
+        log::error "failed to apply ECO. Policy left as '$before_policy'."
+        return 1
+    fi
+
+    [ -n "$DRY_RUN" ] || _nvcm::write_policy eco
+    [ -n "$DRY_RUN" ] && log::info "dry-run: would record policy=eco in $POLICY_FILE"
+
+    printf 'Policy:   ECO%s\n' "$([ -n "$DRY_RUN" ] && echo '  (dry-run, not recorded)')"
+    printf 'Runtime:  %s\n' "$(nvidia::runtime_pm_state)"
+    _nvcm::show_clients
+    printf '\n'
+    log::ok "ECO applied — RTD3 allowed; CUDA can still wake the GPU on demand"
+}
+
+_nvcm::cmd_compute() {
+    if ! nvidia::present; then
+        log::warn "no NVIDIA GPU present — nothing to apply"
+        return 0
+    fi
+    local backend before_policy
+    backend=$(_nvcm::read_backend)
+    before_policy=$(_nvcm::read_policy)
+    printf 'Applying policy: COMPUTE   (backend: %s)\n' "$backend"
+
+    case "$backend" in
+        auto|none)
+            [ -n "$DRY_RUN" ] || _nvcm::write_policy compute
+            [ -n "$DRY_RUN" ] && log::info "dry-run: would record policy=compute in $POLICY_FILE"
+            printf 'Policy:   COMPUTE%s\n' "$([ -n "$DRY_RUN" ] && echo '  (dry-run, not recorded)')"
+            printf 'Backend:  %s — NO keep-awake mechanism is active.\n' "$backend"
+            log::warn "the GPU will still follow RTD3. Resolve a real backend on Gentoo first-run"
+            log::warn "(compute_backend=power-control | persistenced) before relying on this."
+            _nvcm::show_clients
+            ;;
+        power-control)
+            local rc=0
+            _nvcm::apply_control on || rc=$?
+            if [ "$rc" != 0 ]; then
+                log::error "backend 'power-control' could not be applied. Policy left as '$before_policy'."
+                return "$rc"
+            fi
+            [ -n "$DRY_RUN" ] || _nvcm::write_policy compute
+            printf 'Policy:   COMPUTE%s\n' "$([ -n "$DRY_RUN" ] && echo '  (dry-run)')"
+            printf 'Backend:  power-control (power/control=on — RTD3 autosuspend disabled)\n'
+            _nvcm::show_clients
+            ;;
+        persistenced)
+            if ! command -v nvidia-persistenced >/dev/null 2>&1; then
+                log::error "backend 'persistenced' selected but nvidia-persistenced is not installed."
+                log::error "Policy left as '$before_policy'."
+                return 1
+            fi
+            log::error "backend 'persistenced' is not implemented in this stage (needs a service"
+            log::error "manager + a verified working config on this hardware). Policy left as '$before_policy'."
+            return 1
+            ;;
+        *)
+            log::error "unknown compute_backend: '$backend'"
+            return 2
+            ;;
+    esac
+    printf '\n'
+    log::ok "COMPUTE recorded"
+}
+
+# _nvcm::cmd_set_backend <auto|power-control|persistenced|none>
+#
+# Records WHICH mechanism `compute` should use — separate from actually
+# applying one. Never called automatically: this exists so a guided flow
+# (install.sh first-run) can persist a candidate ONLY after confirming a real
+# test of it succeeded, rather than poking at $NVCM_STATE_DIR/backend
+# directly from outside this CLI. Writing "auto" here is always safe (that's
+# the unresolved default); writing anything else is a claim that the caller
+# already verified it.
+_nvcm::cmd_set_backend() {
+    local target="$1"
+    case "$target" in auto|power-control|persistenced|none) ;; *)
+        log::error "set-backend: must be one of auto|power-control|persistenced|none (got '$target')"
+        return 2 ;;
+    esac
+    if [ -n "$DRY_RUN" ]; then
+        log::info "dry-run: would record backend=$target in $BACKEND_FILE"
+        return 0
+    fi
+    mkdir -p "$NVCM_STATE_DIR"
+    printf '%s\n' "$target" > "$BACKEND_FILE"
+    log::ok "backend recorded: $target"
+}
+
+# --- arg parsing / dispatch ------------------------------------------
+
+_nvcm::usage() {
+    cat <<'EOF'
+nvidia-compute-mode — NVIDIA compute-session backend
+
+Usage:
+  nvidia-compute-mode status [--json] [--deep]
+  nvidia-compute-mode eco       [--dry-run]
+  nvidia-compute-mode compute   [--dry-run]
+  nvidia-compute-mode set-backend <auto|power-control|persistenced|none> [--dry-run]
+
+  status         requested policy + observed state (no-wake; never runs nvidia-smi)
+  status --json  same, as stable JSON (schema nvidia-compute-mode/v1)
+  status --deep  adds WAKE-CAPABLE nvidia-smi metrics (warns first)
+  eco            default policy: allow RTD3; CUDA can still wake the GPU
+  compute        keep the GPU prepared/awake via compute_backend (see --help notes)
+  set-backend    record which mechanism 'compute' should use. Only meant to be
+                 called after a guided test confirms it actually works on this
+                 hardware (install.sh first-run) — this alone does not test or
+                 apply anything.
+
+Options:
+  --dry-run      print what would change; touch nothing
+  -h, --help     this help
+
+State: ${XDG_STATE_HOME:-~/.local/state}/nvidia-compute-mode/{policy,backend}
+EOF
+}
+
+main() {
+    local cmd="" backend_arg="" a
+    while [ $# -gt 0 ]; do
+        a="$1"; shift
+        case "$a" in
+            status|eco|compute|set-backend) [ -z "$cmd" ] && cmd="$a" || { log::error "one command at a time"; exit 2; } ;;
+            --json)     JSON=1 ;;
+            --deep)     DEEP=1 ;;
+            --dry-run)  DRY_RUN=1 ;;
+            --verbose|-v) export LOG_VERBOSE=1 ;;
+            -h|--help)  _nvcm::usage; exit 0 ;;
+            auto|power-control|persistenced|none)
+                if [ "$cmd" = set-backend ] && [ -z "$backend_arg" ]; then backend_arg="$a"
+                else log::error "unknown argument: $a"; _nvcm::usage >&2; exit 2; fi ;;
+            *) log::error "unknown argument: $a"; _nvcm::usage >&2; exit 2 ;;
+        esac
+    done
+    cmd="${cmd:-status}"
+
+    if { [ "$JSON" = 1 ] || [ "$DEEP" = 1 ]; } && [ "$cmd" != status ]; then
+        log::error "--json/--deep are only valid for 'status'"; exit 2
+    fi
+    if [ "$cmd" = set-backend ] && [ -z "$backend_arg" ]; then
+        log::error "set-backend needs a value: auto|power-control|persistenced|none"; exit 2
+    fi
+
+    case "$cmd" in
+        status)      _nvcm::cmd_status ;;
+        eco)         _nvcm::cmd_eco ;;
+        compute)     _nvcm::cmd_compute ;;
+        set-backend) _nvcm::cmd_set_backend "$backend_arg" ;;
+    esac
+}
+
+main "$@"

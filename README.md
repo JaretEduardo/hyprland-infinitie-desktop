@@ -1,155 +1,188 @@
-# hyprland-infinite-desktop-v2
-A powerful script to transform your Hyprland workspace into an "infinite" canvas. This tool allows you to pan all floating windows simultaneously using your mouse and navigate between them with keyboard shortcuts, creating a dynamic and boundless desktop experience.
-<img width="1920" height="1080" alt="20260509_18h26m44s_grim" src="https://github.com/user-attachments/assets/464fa371-7cc4-4fd5-a06c-55d7b51ba59d" />
+# Hyprland Infinite Desktop workstation
 
+A reproducible **Gentoo + Hyprland** workstation configuration, built around
+Hyprland's modern Lua config, Quickshell, and a hybrid AMD/NVIDIA GPU setup —
+with **Infinite Desktop** (pan the whole floating canvas, keyboard-only
+window navigation) as one modular feature of it, not the whole project.
 
-## 🚀 Features
+This is **not a Linux distribution and not a Gentoo installer.** It is a
+config repo plus a small, transparent `install.sh` that detects, explains,
+and — only after you confirm — writes files. It never partitions a disk,
+never touches EFI or a bootloader, and never installs Gentoo itself.
 
--Infinite Panning: Move the entire "canvas" of floating windows by holding a modifier combination and moving your mouse.
+## What this is
 
--Smart Navigation: Cycle focus between floating windows
+- Gentoo + systemd
+- Hyprland ≥ 0.55 (Lua config, `hl.dsp.*` dispatch API), Quickshell as the bar/shell
+- NetworkManager, PipeWire + WirePlumber
+- AMD iGPU as the primary/compositor GPU, NVIDIA dGPU on-demand
+  (ECO by default, COMPUTE on request — see [HYBRID-GPU.md](docs/HYBRID-GPU.md))
+- `hypridle` + `hyprlock` for idle/lock/DPMS, `logind` for lid/power-key —
+  each event owned by exactly one of the two (see [POWER.md](docs/POWER.md))
+- Infinite Desktop — an isolated, optional evdev daemon
+  (see [INFINITE-DESKTOP.md](docs/INFINITE-DESKTOP.md))
+- machine profiles — declarative, DMI-matched hardware expectations
+  (see [PROFILES.md](docs/PROFILES.md))
+- a guided first-run for what only real hardware can decide
+  (see [FIRST-RUN.md](docs/FIRST-RUN.md))
+- an optional kernel development workflow
+  (see [KERNEL-DEVELOPMENT.md](docs/KERNEL-DEVELOPMENT.md))
 
-## New features
+## Scope
 
--Now works in LUA (Hyprland 0.55+).
+This repo starts **after** you already have a working Gentoo base install —
+booted, networked, with a regular user. Everything below is explicitly
+**out of scope**, and nothing here ever touches it:
 
--Toggle tiling floating/layout.
+- disk partitioning, filesystem creation
+- EFI, the bootloader (GRUB/systemd-boot/...)
+- the Gentoo base installation itself (stage3, `emerge --sync`, a kernel you
+  boot for the first time)
 
--Rezize and move windows without mouse.
+**Disk safety:** no script in this repo writes to a block device, a
+partition, an EFI partition, or a bootloader configuration, ever. User-level
+writes stay confined to `$HOME`/the relevant `$XDG_*` directory (dotfiles,
+symlinks). The only system-level writes are to known `/etc` configuration
+files that genuinely need root (a udev/modprobe rule for the hybrid GPU, a
+`logind.conf.d` drop-in for lid/power-key) — always previously detected,
+shown to you exactly, and applied only after confirmation, with a backup of
+anything replaced — see [INSTALL.md](docs/INSTALL.md).
 
--Better navigation.
+## Architecture, in short
 
+```
+Gentoo (already installed, already booted)
+  |
+  v
+install.sh
+  |-- check / profile        read-only detection (hardware, machine profile)
+  |-- deps                   what's missing, the exact emerge/overlay commands
+  |-- dotfiles                per-file symlinks into ~/.config
+  |-- gpu / power             the few root-owned files this needs (shown, confirmed)
+  |-- desktop                 orchestrates all of the above as one unit
+  |-- first-run               guided: real monitor config, wev keys, NVIDIA backend
+  `-- doctor                  read-only diagnostics, any time
 
-## 📥 Installation
+Hyprland session
+  |-- Quickshell               the bar (NOT Waybar)
+  |-- Infinite Desktop         optional evdev pan/navigate daemon
+  |-- hypridle / hyprlock      idle -> dim -> lock -> DPMS -> suspend
+  `-- AMD primary + NVIDIA on-demand (ECO / COMPUTE)
+```
 
-# Automatic:
+Every command that writes anything follows the same rule: **detect → explain
+→ show the exact change → confirm → apply.** Nothing runs `sudo`,
+`emerge`, or a service enable/start on its own — see
+[INSTALL.md](docs/INSTALL.md) and [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+for the full picture.
 
-1. **Download the file named "Install hyprland infinite desktop" into the "~/" directory (Home/USER/).**
-   
-2. **Run the following commands:**
-   ```bash
-   chmod +x install-hyprland-infinite-desktop.sh
-   ```
+## Quick start
 
-   ```bash
-   ./install-hyprland-infinite-desktop.sh
-   ```
+```bash
+# on an already-installed, already-booted Gentoo machine
+git clone <this-repo> ~/hyprland-infinite-desktop
+cd ~/hyprland-infinite-desktop
 
-3. **Read the changes in hyprland.lua carefully (they are printed at the end of the script).**
+./install.sh check      # read-only system report — works on any distro
+./install.sh profile    # which machine profile applies (read-only)
+./install.sh deps       # what's missing — install it yourself with the
+                         # exact emerge/overlay commands it prints
+```
 
-4. **Reboot your system**
+```bash
+./install.sh full             # PLAN — the whole sequence, read-only, 0 writes
+./install.sh full --apply     # APPLY — dotfiles, GPU config, power config,
+                               # Infinite Desktop; stops before any write if
+                               # required packages are still missing
+```
 
+```bash
+# log into the Hyprland session you just configured, then:
+./install.sh first-run --apply   # VALIDATE IN SESSION — real monitor
+                                  # detection, wev-guided media keys, a
+                                  # guided NVIDIA compute-backend test
+./install.sh doctor               # read-only diagnostics, any time after
+```
 
-# Manual:
+`full` already calls `check`, `deps`'s own gate, `dotfiles`, `gpu`, `power`,
+`infinite-desktop` and `doctor` for you as one unit — there is no separate
+"now run desktop" step in between. `full --apply` outside a Hyprland session
+completes everything it safely can and tells you plainly that first-run is
+still pending; inside a live session it offers to run first-run for you.
 
-1. **Requirements**
-   You need Python 3, jq, bash, python-evdev installed on your system.
+**Optional**, any time, independent of the desktop being fully set up:
 
-   ### Installation by Distribution:
+```bash
+./install.sh kernel-dev   # kernel dev readiness + reproducible commands
+                           # (read-only; not part of full — see below)
+```
 
-   * **Arch Linux:**
-     ```bash
-     sudo pacman -S python python-evdev bash jq
-     ```
+## CLI
 
-   *For Fedora or Debian-based distributions, make sure you have the latest version of Hyprland compiled or installed.*
+```
+./install.sh help
+```
 
-   * **Fedora:**
-     ```bash
-     sudo dnf install python python-evdev bash jq
-     ```
-   * **Ubuntu / Debian:**
-     ```bash
-     sudo apt install python python-evdev bash jq
-     ```
+| Command | Writes? | Notes |
+| --- | --- | --- |
+| `check` | never | read-only system report, works on any distro |
+| `profile` | never | which `profiles/<id>/` applies (DMI-matched) |
+| `deps` | never | Gentoo package/overlay plan; never runs `emerge` |
+| `dotfiles` | `--apply` | per-file symlinks into `~/.config` |
+| `gpu` | `--apply` | the few `/etc` files the NVIDIA driver doesn't already provide |
+| `power` | `--apply` | the one `logind.conf.d` drop-in this needs root for |
+| `infinite-desktop` | yes (no separate flag; `--dry-run` to preview) | copies runtime scripts to `~/scripts/` |
+| `desktop` | `--apply` | orchestrates dotfiles/gpu/power/infinite-desktop/doctor |
+| `monitor` | `--apply` | real monitor detection from a live Hyprland session |
+| `first-run` | `--apply` | guided: monitor, wev keys, NVIDIA compute backend |
+| `doctor` | never | read-only diagnostics; `--nvidia-deep` opts into `nvidia-smi` |
+| `full` | `--apply` | top-level: profile + desktop + first-run, each reused as-is |
+| `kernel-dev` | never | readiness + reproducible commands; **not** part of `full` |
 
-2. **Permissions**
+Global flags:
 
-   Add your user to the group:
-   ```bash
-   sudo usermod -aG input $USER
-   ```
+| Flag | Effect |
+| --- | --- |
+| `--dry-run` | every write-capable command shows what it would do and writes nothing; read-only commands accept it as a no-op |
+| `--verbose`, `-v` | extra diagnostic detail |
+| `--no-color` | disable coloured output |
 
-   Restart your session:
-   ```bash
-   sudo reboot
-   ```
+## What's still manual
 
-3. **Create the directory:**
-   All scripts must be stored in a dedicated folder in your home directory:
-   ```bash
-   mkdir -p ~/scripts
-   ```
-4. **Download the scripts:**
-   Place all scripts (.py and .sh) inside ~/scripts/
+- Installing whatever `install.sh deps` says is missing (this repo never
+  runs `emerge`)
+- Enabling/reviewing the `sudo`/`pkexec` commands `gpu`/`power` print, if you
+  don't run `--apply` as root yourself
+- The physical checks `first-run` walks you through (media keys against
+  `wev`, a real lid-close/suspend cycle) — nothing can simulate a key press
+  or a suspend for you
+- Kernel development itself (`kernel-dev` only detects and suggests commands
+  — it never runs `make`, never touches `/boot` or the bootloader)
 
-5. **Grant execution permissions:**
-   ```bash
-   chmod +x ~/scripts/infinite-desktop.sh ~/scripts/floating_tile_toggle.py ~/scripts/move_window_tiled.py ~/scripts/navigate_windows.py ~/scripts/resize_window.py
-   ```
+## What needs a real Gentoo target to confirm
 
-## ⚙️ Configuration (for manual installation)
-Add the following lines to your ~/.config/hypr/hyprland.lua:
+This repo was developed and tested from a Fedora host acting as a read-only
+stand-in — every plan-mode and `--check`/`--env` command runs there
+faithfully, and `--apply` flows are exercised against sandboxed
+`HOME`/sysroots. What can only be confirmed on the real Gentoo target is
+called out explicitly in each doc: real Hyprland/`hyprctl` behaviour
+([FIRST-RUN.md](docs/FIRST-RUN.md)), the NVIDIA driver's actual RTD3/D3cold
+behaviour ([HYBRID-GPU.md](docs/HYBRID-GPU.md)), and a real lid/suspend cycle
+([POWER.md](docs/POWER.md)).
 
-1. **Auto-start**
-   ```bash
-    hl.on("hyprland.start", function()
-        hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6 > /tmp/infinite-desktop.log 2>&1")
-   end)
-   ```
-2. **Keybindings**
-   Add these binds to enable keyboard navigation between your floating windows:
-   
-   ***(if you already have a bind that uses one of the required keys or for workspaces, replace them)***
-   ```bash
+## Documentation
 
+| Doc | Covers |
+| --- | --- |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | repository layout, how every command fits together |
+| [INSTALL.md](docs/INSTALL.md) | every command, in detail |
+| [HYBRID-GPU.md](docs/HYBRID-GPU.md) | AMD primary / NVIDIA on-demand, ECO/COMPUTE, RTD3 |
+| [POWER.md](docs/POWER.md) | idle/lock/DPMS/suspend/lid ownership matrix |
+| [PROFILES.md](docs/PROFILES.md) | machine profiles: format, matching, validation |
+| [FIRST-RUN.md](docs/FIRST-RUN.md) | the guided first-run checklist, in detail |
+| [INFINITE-DESKTOP.md](docs/INFINITE-DESKTOP.md) | Infinite Desktop's own architecture |
+| [KERNEL-DEVELOPMENT.md](docs/KERNEL-DEVELOPMENT.md) | the optional kernel-dev workflow |
 
-   local mainMod = "SUPER"
+## License
 
-   -- Workspaces
-   hl.bind(mainMod .. " + Z", hl.dsp.focus({ workspace = "-1" }))
-   hl.bind(mainMod .. " + X", hl.dsp.focus({ workspace = "+1" }))
-   hl.bind(mainMod .. " + SHIFT + Z", hl.dsp.window.move({ workspace = "-1" }))
-   hl.bind(mainMod .. " + SHIFT + X", hl.dsp.window.move({ workspace = "+1" }))
-
-   -- Infinite desktop 
-   hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("python3 ~/scripts/floating_tile_toggle.py"))
-
-   hl.bind(mainMod .. " + left",  hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py left"))
-   hl.bind(mainMod .. " + right", hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py right"))
-   hl.bind(mainMod .. " + up",    hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py up"))
-   hl.bind(mainMod .. " + down",  hl.dsp.exec_cmd("python3 ~/scripts/navigate_windows.py down"))
-
-   hl.bind(mainMod .. " + ALT + left",  hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py left"))
-   hl.bind(mainMod .. " + ALT + right", hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py right"))
-   hl.bind(mainMod .. " + ALT + up",    hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py up"))
-   hl.bind(mainMod .. " + ALT + down",  hl.dsp.exec_cmd("python3 ~/scripts/move_window_tiled.py down"))
-
-   hl.bind(mainMod .. " + SHIFT + left",  hl.dsp.exec_cmd("python3 ~/scripts/move_window.py left"),  { repeating = true })
-   hl.bind(mainMod .. " + SHIFT + right", hl.dsp.exec_cmd("python3 ~/scripts/move_window.py right"), { repeating = true })
-   hl.bind(mainMod .. " + SHIFT + up",    hl.dsp.exec_cmd("python3 ~/scripts/move_window.py up"),    { repeating = true })
-   hl.bind(mainMod .. " + SHIFT + down",  hl.dsp.exec_cmd("python3 ~/scripts/move_window.py down"),  { repeating = true })
-
-   hl.bind(mainMod .. " + CTRL + left",  hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py left"),  {    repeating = true })
-   hl.bind(mainMod .. " + CTRL + right", hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py right"), { repeating = true })
-   hl.bind(mainMod .. " + CTRL + up",    hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py up"),    { repeating = true })
-   hl.bind(mainMod .. " + CTRL + down",  hl.dsp.exec_cmd("python3 ~/scripts/resize_window.py down"),  { repeating = true })
-   ```
-
-## 🖱️ How to use
-
- **Workspaces:** Press ***SUPER + Z or X*** to change of workspaces.
- 
- **Panning:** Hold ***SUPER + ALT*** and move your mouse to slide the entire desktop.
- 
- **Navigation:** Press ***SUPER + Arrow Keys*** to center and focus the next floating/tiled window.
- 
- **Toggle floating/layout:** Press ***SUPER + D*** to toggle all windows floating/mosaic.
-
- **Toggle floating/layout:** Press ***SUPER + V*** ti toggle one window flotating/mosaic.
-
- **Rezize window:** Press/hold ***CTRL + SUPER + Arrow Keys*** to rezize windows.
-
- **Move windows:** Press/hold ***SHIFT + SUPER + Arrow Keys*** to move windows on floating.
-
- **Move tiled windows:** Press ***SUPER + ALT + Arrow Keys*** yo move tiled windows.
+See [LICENSE](LICENSE).

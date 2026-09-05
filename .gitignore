@@ -1,0 +1,7 @@
+# Artifacts that can genuinely appear inside a checkout of this repo.
+# Machine-local generated config (monitors.local.lua, nvidia-compute-mode
+# state, etc.) is never written inside the repo in the first place — see
+# docs/ARCHITECTURE.md "Machine-local files" — so it has no entry here.
+
+__pycache__/
+*.pyc

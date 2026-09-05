@@ -1,0 +1,14 @@
+# managed by hyprland-infinitie-desktop (install.sh gpu)
+#
+# Stable /dev/dri symlinks for GPU selection, independent of the cardN number
+# (which the kernel reassigns across boots). Hyprland's AQ_DRM_DEVICES needs
+# stable paths, and its ':' list separator collides with the ':' in the raw
+# /dev/dri/by-path/pci-*-card names — so we make our own colon-free symlinks.
+#
+#   /dev/dri/hypr-primary    -> AMD iGPU   (the compositor GPU)
+#   /dev/dri/hypr-secondary  -> NVIDIA dGPU (outputs on it + render offload)
+#
+# The installer substitutes the PCI addresses below from lib/hardware.sh.
+
+KERNEL=="card*", SUBSYSTEM=="drm", SUBSYSTEMS=="pci", KERNELS=="@AMD_PCI@", SYMLINK+="dri/hypr-primary"
+KERNEL=="card*", SUBSYSTEM=="drm", SUBSYSTEMS=="pci", KERNELS=="@NVIDIA_PCI@", SYMLINK+="dri/hypr-secondary"

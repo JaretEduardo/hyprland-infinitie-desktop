@@ -1,0 +1,59 @@
+# Dotfiles managed by this repo — one symlink PER ENTRY, never a whole directory.
+#
+#   base | source | dest | note
+#
+#   base   : config  -> dest is relative to $XDG_CONFIG_HOME (default ~/.config)
+#            home    -> dest is relative to $HOME
+#   source : path relative to the repo root (INSTALL_REPO_DIR)
+#   dest   : path relative to the chosen base. No "..", no absolute paths.
+#
+# Per-entry linking is deliberate: ~/.config/hypr/ and ~/.config/hypr/lua/ stay
+# real directories, so machine-local files generated later —
+# ~/.config/hypr/monitors.local.lua, ~/.config/hypr/gpu.local.lua — live beside
+# the symlinks, are never in git, and are never touched by `install.sh dotfiles`.
+
+# ---- Hyprland (modular Lua config; targets Hyprland >= 0.55) --------------
+config | config/hypr/hyprland.lua              | hypr/hyprland.lua
+config | config/hypr/lua/util.lua              | hypr/lua/util.lua
+config | config/hypr/lua/env.lua               | hypr/lua/env.lua
+config | config/hypr/lua/monitors.lua          | hypr/lua/monitors.lua
+config | config/hypr/lua/input.lua             | hypr/lua/input.lua
+config | config/hypr/lua/appearance.lua        | hypr/lua/appearance.lua
+config | config/hypr/lua/bindings.lua          | hypr/lua/bindings.lua
+config | config/hypr/lua/laptop.lua            | hypr/lua/laptop.lua
+config | config/hypr/lua/autostart.lua         | hypr/lua/autostart.lua
+config | config/hypr/lua/infinite-desktop.lua  | hypr/lua/infinite-desktop.lua
+
+# hypridle / hyprlock search $XDG_CONFIG_HOME/hypr/ themselves, so these live
+# there too, per-file like everything else above (see docs/POWER.md).
+config | config/hypridle/hypridle.conf         | hypr/hypridle.conf
+config | config/hyprlock/hyprlock.conf         | hypr/hyprlock.conf
+
+# The Infinite Desktop autostart + keybinds are declared in
+# config/hypr/lua/infinite-desktop.lua (linked above). `install.sh
+# infinite-desktop` installs only the runtime scripts and no longer edits
+# hyprland.lua — the old patch_hyprland.py mechanism has been removed.
+
+# ---- Quickshell (modular bar; targets Quickshell 0.3.0) -------------------
+# Per-file, not a whole-directory link, so ~/.config/quickshell/{,modules,services}
+# stay real directories for future machine-local additions.
+config | config/quickshell/shell.qml               | quickshell/shell.qml
+config | config/quickshell/Bar.qml                  | quickshell/Bar.qml
+config | config/quickshell/modules/Workspaces.qml   | quickshell/modules/Workspaces.qml
+config | config/quickshell/modules/ActiveWindow.qml | quickshell/modules/ActiveWindow.qml
+config | config/quickshell/modules/Clock.qml        | quickshell/modules/Clock.qml
+config | config/quickshell/modules/Battery.qml      | quickshell/modules/Battery.qml
+config | config/quickshell/modules/Network.qml      | quickshell/modules/Network.qml
+config | config/quickshell/modules/Audio.qml        | quickshell/modules/Audio.qml
+config | config/quickshell/modules/Brightness.qml   | quickshell/modules/Brightness.qml
+config | config/quickshell/modules/SystemStats.qml  | quickshell/modules/SystemStats.qml
+config | config/quickshell/modules/NvidiaGpu.qml    | quickshell/modules/NvidiaGpu.qml
+config | config/quickshell/services/Frame.qml       | quickshell/services/Frame.qml
+
+# ---- backend CLIs the Quickshell modules shell out to ---------------------
+# modules/NvidiaGpu.qml calls `nvidia-compute-mode` by name (PATH lookup, with
+# a "command -v" guard so a PATH miss degrades cleanly instead of erroring).
+# Linking it into ~/.local/bin/ — conventionally on PATH — is what makes that
+# resolve; nvidia-offload goes alongside it for the same reason.
+home | bin/nvidia-compute-mode | .local/bin/nvidia-compute-mode
+home | bin/nvidia-offload      | .local/bin/nvidia-offload

@@ -1,0 +1,50 @@
+#!/bin/sh
+#
+# nvidia-offload — run an OpenGL / Vulkan application on the NVIDIA GPU via
+# PRIME Render Offload, while the AMD iGPU stays the compositor/primary GPU.
+#
+#   nvidia-offload blender
+#   nvidia-offload glxinfo | grep "OpenGL renderer"
+#   nvidia-offload vkcube
+#
+# This wrapper is ONLY for making a graphics app *render* on the NVIDIA GPU.
+#
+# It is NOT for CUDA / compute. A CUDA app (PyTorch, TensorFlow, a CUDA
+# Blender render, nvcc-built code, nvidia-smi) already talks to the NVIDIA
+# GPU directly through the CUDA driver and needs none of these variables.
+# Do not run compute workloads through nvidia-offload — it changes nothing
+# for them and only adds noise. Render offload and compute are separate.
+#
+# Variables set (proprietary driver):
+#   __NV_PRIME_RENDER_OFFLOAD=1            enable GLX/EGL offload
+#   __NV_PRIME_RENDER_OFFLOAD_PROVIDER     name of the NVIDIA provider
+#   __GLX_VENDOR_LIBRARY_NAME=nvidia       use the NVIDIA GLX vendor library
+#   __VK_LAYER_NV_optimus=NVIDIA_only      Vulkan: prefer the NVIDIA ICD
+#   __EGL_VENDOR_LIBRARY_FILENAMES         EGL: prefer the NVIDIA vendor JSON
+#                                          (only if that file exists)
+#
+# None of these touch CUDA device selection.
+
+set -eu
+
+if [ "$#" -eq 0 ]; then
+    echo "usage: nvidia-offload <command> [args...]" >&2
+    echo "  runs a GL/Vulkan app on the NVIDIA GPU (render offload; NOT for CUDA)" >&2
+    exit 2
+fi
+
+export __NV_PRIME_RENDER_OFFLOAD=1
+export __NV_PRIME_RENDER_OFFLOAD_PROVIDER=NVIDIA-G0
+export __GLX_VENDOR_LIBRARY_NAME=nvidia
+export __VK_LAYER_NV_optimus=NVIDIA_only
+
+for _egl in /usr/share/glvnd/egl_vendor.d/10_nvidia.json \
+            /usr/lib/glvnd/egl_vendor.d/10_nvidia.json; do
+    if [ -r "$_egl" ]; then
+        export __EGL_VENDOR_LIBRARY_FILENAMES="$_egl"
+        break
+    fi
+done
+unset _egl
+
+exec "$@"

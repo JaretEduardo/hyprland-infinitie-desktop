@@ -36,7 +36,7 @@ hyprland | gui-libs/xdg-desktop-portal-hyprland | hyproverlay | required    | sc
 hyprland | sys-apps/xdg-desktop-portal          | ::gentoo    | required    | portal frontend
 hyprland | sys-apps/xdg-desktop-portal-gtk      | ::gentoo    | recommended | GTK file-chooser backend
 hyprland | sys-auth/polkit                      | ::gentoo    | required    | privilege prompts
-hyprland | gui-apps/foot                        | ::gentoo    | recommended | Wayland-native terminal (swap for your own)
+hyprland | gui-apps/foot                        | ::gentoo    | required    | terminal: lua/bindings.lua's Super+Return runs $TERMINAL, falling back to `foot`. Set $TERMINAL + install that instead if you prefer another.
 hyprland | gui-apps/hyprpaper                   | hyproverlay | optional    | wallpaper daemon
 hyprland | gui-apps/hyprpicker                  | hyproverlay | optional    | colour picker
 hyprland | gui-apps/grim                        | ::gentoo    | optional    | screenshots

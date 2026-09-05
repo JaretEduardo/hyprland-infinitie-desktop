@@ -132,7 +132,7 @@ pcall-free.
 | `monitors.lua` | generic `output = ""` fallback rule (no `eDP-1`, no resolution); loads `monitors.local.lua` |
 | `input.lua` | keyboard + touchpad base, 3-finger workspace swipe |
 | `appearance.lua` | minimal gaps / borders / layout; Quickshell owns the visuals later |
-| `bindings.lua` | basic desktop keybinds only |
+| `bindings.lua` | basic desktop keybinds only; `Super+Return` runs `$TERMINAL`, falling back to `foot` (a `required` package — see `install/packages.gentoo`) |
 | `laptop.lua` | XF86 volume/mic/brightness/media keybinds (`wpctl`/`brightnessctl`/`playerctl`) |
 | `autostart.lua` | environment import, polkit agent, Quickshell, hypridle |
 | `infinite-desktop.lua` | Infinite Desktop autostart + keybinds; the only seam to that component. Loaded last; `hl.unbind`s + rebinds `SUPER + arrows`. |

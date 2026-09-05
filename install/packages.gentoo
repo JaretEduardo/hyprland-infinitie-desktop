@@ -91,7 +91,18 @@ kernel-dev | dev-util/perf             | ::gentoo | optional    | profiling (tra
 kernel-dev | sys-apps/kexec-tools      | ::gentoo | optional    | fast reboot into a test kernel
 kernel-dev | llvm-core/clang           | ::gentoo | optional    | Clang-built kernels / eBPF
 kernel-dev | llvm-core/llvm            | ::gentoo | optional    |
+kernel-dev | llvm-core/lld             | ::gentoo | optional    | LLVM linker for LLVM=1 builds
+kernel-dev | sys-devel/sparse          | ::gentoo | recommended | make C=1/C=2 CHECK=sparse static analysis
+kernel-dev | dev-libs/elfutils         | ::gentoo | recommended | libelf — objtool/resolve_btfids/perf need it
+kernel-dev | dev-libs/openssl          | ::gentoo | recommended | module/kernel signing, certs (usually already in @system)
 kernel-dev | dev-lang/rust             | ::gentoo | optional    | Rust-for-Linux + general Rust work
 kernel-dev | dev-build/cmake           | ::gentoo | optional    | C/C++ projects
 kernel-dev | dev-build/ninja           | ::gentoo | optional    | C/C++ projects
 kernel-dev | app-emulation/qemu        | ::gentoo | optional    | boot-test kernels in a VM
+
+# perl (dev-lang/perl) and python (dev-lang/python) are not listed as their
+# own atoms above: both are part of Gentoo's @system set already on any
+# profile this repo targets, so there is nothing for install.sh deps to add.
+# install.sh kernel-dev --check still verifies both are actually on PATH,
+# since Kconfig and scripts/checkpatch.pl/get_maintainer.pl/gen_compile_commands.py
+# need them at runtime, not at merge time.

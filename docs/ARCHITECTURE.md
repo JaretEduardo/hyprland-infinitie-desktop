@@ -14,7 +14,8 @@ install/
   dotfiles.manifest            which repo files are symlinked where (data)
 lib/
   log.sh  ui.sh                logging + presentational helpers
-  hardware.sh                  read-only hardware detection (PCI/sysfs, no cardN)
+  hardware.sh                  read-only hardware detection (PCI/sysfs, no cardN;
+                                also CPU core count and RAM size, for kernel-dev)
   portage.sh                   read-only Portage / overlay / catalogue helpers
   nvidia.sh                    read-only, power-aware NVIDIA observation (no-wake)
   profile.sh                   read-only machine-profile detection/validation
@@ -102,6 +103,16 @@ login to Hyprland
 `full` never starts a Hyprland session itself and never claims the
 workstation is fully set up unless first-run was actually run, in that same
 invocation, and finished cleanly — see [INSTALL.md](INSTALL.md).
+
+`kernel-dev` is a separate, standalone command — a readiness checker,
+source-tree detector and reproducible-command generator for kernel
+development on this workstation, not another workstation-bring-up step. It
+is deliberately **not** called by `full`: kernel development is a distinct
+activity that starts only when you choose it, not something a desktop
+bring-up should ever assume you want. It reuses `lib/hardware.sh` (CPU core
+count, RAM) and `install/packages.gentoo`'s `kernel-dev` group exactly like
+every other command reuses shared detection — no new detection layer. See
+[KERNEL-DEVELOPMENT.md](KERNEL-DEVELOPMENT.md).
 
 ## Hyprland configuration
 

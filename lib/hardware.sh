@@ -110,6 +110,20 @@ hw::cpu() {
     return 0
 }
 
+# --- memory -----------------------------------------------------------------
+
+# hw::mem_total_kb -> MemTotal from /proc/meminfo, in kB, or "" if unreadable
+hw::mem_total_kb() {
+    awk '/^MemTotal:/{print $2; exit}' /proc/meminfo 2>/dev/null || true
+}
+
+# hw::mem_total_gb -> MemTotal rounded to the nearest whole GiB, or ""
+hw::mem_total_gb() {
+    local kb; kb=$(hw::mem_total_kb)
+    [ -n "$kb" ] || return 0
+    awk -v kb="$kb" 'BEGIN { printf "%d", (kb / 1024 / 1024) + 0.5 }'
+}
+
 # --- os / init ---------------------------------------------------------------
 
 hw::os_id()     { ( . /etc/os-release 2>/dev/null; printf '%s' "${ID:-}" ); }

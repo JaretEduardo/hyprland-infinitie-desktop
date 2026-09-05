@@ -278,3 +278,25 @@ NVIDIA backend or regenerate an identical `monitors.local.lua`.
 See [ARCHITECTURE.md](ARCHITECTURE.md#installer) for the
 "base Gentoo install → `full --apply` → login Hyprland → `first-run --apply`"
 picture, and [FIRST-RUN.md](FIRST-RUN.md) for what first-run itself covers.
+
+### `kernel-dev` — kernel development readiness and reproducible commands
+
+```
+./install.sh kernel-dev             everything below
+./install.sh kernel-dev --check     toolchain/tool readiness only
+./install.sh kernel-dev --env       source tree / output dir / jobs only
+./install.sh kernel-dev --commands  reproducible command list only
+```
+
+Strictly read-only — there is no `--apply`. Detects a kernel source tree
+(`$KERNEL_SRC`, then `~/src/linux`, then the Gentoo `/usr/src/linux`
+symlink, first valid one wins, nothing written or deleted), reports real
+toolchain presence (`gcc`/`clang`/`sparse`/`pahole`/`ccache`/...), and prints
+copy-pasteable `make`/config/static-analysis/patch commands — a conservative,
+memory-aware `-j<N>` recommendation instead of a blind `nproc`, an
+out-of-tree `O=<dir>` build directory, and the current
+`scripts/clang-tools/gen_compile_commands.py`-backed `compile_commands.json`
+target. Never runs `make`, never writes `/boot`, never touches the
+bootloader/EFI or the `/usr/src/linux` symlink, never installs a kernel.
+Deliberately **not** part of `full` (see `install.sh full`, above) — invoke
+it on its own. See [KERNEL-DEVELOPMENT.md](KERNEL-DEVELOPMENT.md).

@@ -76,6 +76,33 @@ is a guided checklist that reuses `check`/`dotfiles`/`monitor`/`doctor` and
 `wev`-guided XF86-key walkthrough and a guided, reversible NVIDIA
 `compute_backend` test. See [FIRST-RUN.md](FIRST-RUN.md).
 
+`full` sits above all of it as the top-level orchestrator, and is itself an
+orchestrator of orchestrators, not a third implementation: it calls
+`profile` once for context, `desktop` once (which already is check → the
+deps gate → dotfiles → gpu → power → infinite-desktop → doctor, as covered
+above), and `first-run` once — offered, never forced, only inside a live
+Hyprland session and only after `desktop` succeeded. The intended sequence
+for a brand new machine is:
+
+```
+Base Gentoo install (out of scope for this repo)
+        |
+        v
+./install.sh full --apply        (dependencies -> dotfiles -> gpu -> power ->
+        |                          Infinite Desktop; stops before any write
+        |                          if required packages are missing)
+        v
+login to Hyprland
+        |
+        v
+./install.sh first-run --apply   (real monitor detection, wev-guided keys,
+                                   NVIDIA compute-backend guided test)
+```
+
+`full` never starts a Hyprland session itself and never claims the
+workstation is fully set up unless first-run was actually run, in that same
+invocation, and finished cleanly — see [INSTALL.md](INSTALL.md).
+
 ## Hyprland configuration
 
 Modern Lua config, targeting Hyprland ≥ 0.55. `config/hypr/hyprland.lua` is a

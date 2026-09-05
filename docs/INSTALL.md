@@ -213,3 +213,68 @@ if both directions genuinely succeeded, otherwise it stays `auto`). Never
 calls `sudo`, `emerge`, or `usermod`; on a non-Gentoo host it reports what it
 can and says plainly what needs the real target. See
 [FIRST-RUN.md](FIRST-RUN.md) and [HYBRID-GPU.md](HYBRID-GPU.md#resolving-compute_backend-installsh-first-run).
+
+### `full` — top-level workstation orchestration
+
+```
+./install.sh full             # plan: profile + desktop (plan) + first-run (plan)
+./install.sh full --apply     # the real sequence, described below
+```
+
+**Not a magic installer.** It does not install Gentoo, partition disks,
+touch the bootloader/EFI, install packages automatically, or start a
+Hyprland session — it only sequences the subcommands that already exist,
+each called exactly once, with full terminal passthrough so their own
+confirmations still work exactly as a direct call would:
+
+1. **Machine profile** — `install.sh profile`'s own detection, shown for
+   context (see [PROFILES.md](PROFILES.md)).
+2. **Desktop configuration** — one call to `install.sh desktop` (`--apply`
+   or plan, matching `full`'s own mode). This alone already covers
+   `check` → the deps gate → `dotfiles` → `gpu` → `power` →
+   `infinite-desktop` → `doctor`; `full` does not call `check` / `deps` /
+   `doctor` a second time on top of it — that would only repeat output that
+   already answered the question.
+3. **First-run** — only when it can mean something. In plan mode this is
+   `install.sh first-run`'s own plan (always safe, always read-only). Under
+   `--apply`, it is only offered — never forced — inside a live Hyprland
+   session, and only after `install.sh desktop --apply` itself completed
+   without stopping.
+
+If required Gentoo packages are missing, `full --apply` stops **before**
+touching any workstation config — that gate is `desktop.sh`'s own (see
+above), not reimplemented here; `full` prints the same `emerge`/overlay
+commands `deps` already prints, expects you to run them yourself, and exits
+non-zero. No `emerge`, `eselect`, `sudo`, `systemctl enable/start`, or
+`usermod` is ever run automatically — by `full` or by anything it calls.
+
+**Outside a live Hyprland session** (this repo's own dev host, for example),
+`--apply` still completes everything it safely can — dotfiles, GPU/power
+config on Gentoo, Infinite Desktop — and ends with:
+
+```
+Desktop configuration complete.
+First-run is still pending.
+
+Next action:
+  Log into Hyprland, then run:
+      ./install.sh first-run --apply
+```
+
+**Inside a live Hyprland session**, once desktop configuration succeeded,
+`full --apply` asks — once — whether to also run `install.sh first-run
+--apply` right now. A "no" here is not an error: it ends cleanly with
+first-run reported `PENDING`, same next-action hint. `full` never claims
+`Workstation setup complete.` unless first-run was actually run, in this
+same invocation, and finished cleanly — never inferred from old files, since
+first-run's own physical checks (wev keys, the lid/suspend cycle) have no
+persisted state to infer from in the first place.
+
+Idempotent the same way `desktop` and each of its own steps already are: a
+second `full --apply` relinks nothing already linked, rewrites nothing that
+already matches, creates no new backups, and does not touch the recorded
+NVIDIA backend or regenerate an identical `monitors.local.lua`.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md#installer) for the
+"base Gentoo install → `full --apply` → login Hyprland → `first-run --apply`"
+picture, and [FIRST-RUN.md](FIRST-RUN.md) for what first-run itself covers.

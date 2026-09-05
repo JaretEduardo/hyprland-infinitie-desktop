@@ -7,6 +7,13 @@ confirmation). It does not reimplement any of these checks — it calls
 `nvidia-compute-mode` directly; this document is the detail behind each
 section, and the reference `wev` table it shows verbatim.
 
+`install.sh full --apply` (see [INSTALL.md](INSTALL.md#full--top-level-workstation-orchestration))
+already calls this command for you — offered, never forced — once it
+detects a live Hyprland session and its own `desktop` phase has succeeded.
+Running `first-run` directly, as documented below, is for whenever you want
+to work through this checklist on its own: right after logging into
+Hyprland for the first time, or any time later to re-check something.
+
 ## Machine profile (`install.sh profile`)
 
 The first thing first-run shows is which [machine profile](PROFILES.md)

@@ -31,14 +31,14 @@ export INSTALL_DRY_RUN="${INSTALL_DRY_RUN:-}"
 export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 
 # Commands with a real implementation today (one script per name in install/cmd/).
-_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run profile"
+_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run profile full"
 # Commands recognised but not implemented yet (added in later stages).
-_CMD_PLANNED="full"
+_CMD_PLANNED=""
 # Of the implemented commands, those that honour --dry-run. 'check', 'deps',
 # 'doctor' and 'profile' are read-only; 'gpu', 'dotfiles', 'infinite-desktop',
-# 'power', 'desktop', 'monitor' and 'first-run' show what they would do and
-# write nothing under --dry-run.
-_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run profile"
+# 'power', 'desktop', 'monitor', 'first-run' and 'full' show what they would
+# do and write nothing under --dry-run.
+_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run profile full"
 
 common::usage() {
     cat <<'EOF'
@@ -69,9 +69,8 @@ Commands:
                       real monitor config, the NVIDIA compute backend, and the
                       remaining hardware validations (plan; --apply to work
                       through pending items)
-
-Planned (later stages, not implemented yet):
-  full                Guided end-to-end orchestration
+  full                Top-level orchestration: profile + desktop + first-run,
+                      each reused as-is (plan; --apply to run the real thing)
 
 Global options:
   --dry-run           Print intended actions without changing the system

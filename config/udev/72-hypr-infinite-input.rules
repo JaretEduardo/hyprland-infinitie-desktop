@@ -1,0 +1,55 @@
+# managed by hyprland-infinitie-desktop (install.sh input)
+#
+# Infinite Desktop's evdev daemon (scripts/infinite-desktop/infinite_desktop_core.py,
+# installed to ~/scripts) reads /dev/input/event* directly to track Super/Alt/Ctrl
+# state (keyboards) and pointer motion + left button (a REL mouse, or a bare
+# ABS/ABS_MT touchpad — a laptop often has only the latter). It does NOT grab()
+# the devices. Node numbers are not stable across boots and the USB keyboard may
+# be absent at boot, so this matches by capability (ID_INPUT_*), never by node
+# name.
+#
+# TAG+="uaccess" makes systemd-logind grant a POSIX ACL (user:<you>:rw) on these
+# nodes ONLY to the user owning the currently ACTIVE local session on this seat.
+# It is NOT an account-wide grant (unlike the `input` group) and never applies to
+# SSH / remote sessions.
+#
+# RISK: while your graphical session is active, ANY process running as you can
+# read ALL key events from these keyboards (passwords included) and every
+# pointer/touchpad motion. This is inherent to evdev without a privileged
+# broker. `uaccess` bounds it to the active local session; it does not remove
+# it. See docs/INFINITE-DESKTOP.md "Input device access" for the stricter
+# (not-yet-implemented) broker alternative.
+#
+# Ordering: 60-input-id.rules (prefix 60) sets ID_INPUT_*; 70-uaccess.rules (70)
+# and 71-seat.rules (71) run before this; 73-seat-late.rules (73) is what turns
+# the "uaccess" tag into the actual ACL (RUN{builtin}+="uaccess"). Prefix 72 sits
+# in that window on purpose.
+#
+# Applying it (no root run by the installer):
+#   sudo install -D -m 0644 <repo>/config/udev/72-hypr-infinite-input.rules \
+#     /etc/udev/rules.d/72-hypr-infinite-input.rules
+#   sudo udevadm control --reload
+#   sudo udevadm trigger --subsystem-match=input --action=change
+# On the machine this was developed on (Lenovo 82SC), the reload + trigger
+# applied the ACL to the already-existing event nodes immediately, with NO
+# logout — `getfacl /dev/input/event*` showed `user:<you>:rw` and the running
+# daemon picked the devices up on its next rescan. This is not guaranteed on
+# every system: if getfacl shows no entry after the trigger, log out and back
+# in (or reboot).
+#
+# Revert:
+#   sudo rm /etc/udev/rules.d/72-hypr-infinite-input.rules
+#   sudo udevadm control --reload
+#   sudo udevadm trigger --subsystem-match=input --action=change
+# logind removes the ACL when the session is no longer active or ends. Whether
+# the trigger alone REVOKES an already-granted ACL (as opposed to granting one)
+# was not tested here — log out/in or reboot to be sure it is dropped.
+
+ACTION=="remove", GOTO="hypr_infinite_input_end"
+SUBSYSTEM!="input", GOTO="hypr_infinite_input_end"
+
+KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", TAG+="uaccess"
+KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1",     TAG+="uaccess"
+KERNEL=="event*", ENV{ID_INPUT_TOUCHPAD}=="1",  TAG+="uaccess"
+
+LABEL="hypr_infinite_input_end"

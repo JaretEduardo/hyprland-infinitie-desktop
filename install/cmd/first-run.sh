@@ -75,10 +75,10 @@ fi
 # None of these are reimplemented here — their own output already answers
 # every item in this section (which machine profile applies and whether its
 # hardware expectations hold, Gentoo, Hyprland version, qs,
-# AMD-primary/NVIDIA-secondary, dotfiles linked, input group,
+# AMD-primary/NVIDIA-secondary, dotfiles linked,
 # NetworkManager, PipeWire/WirePlumber, hypridle/hyprlock/brightnessctl
-# binaries). doctor (section 6) repeats the [OK]/[WARN] verdict on all of
-# it; profile/check/dotfiles here are the detail.
+# binaries). doctor (the final section) repeats the [OK]/[WARN] verdict on all
+# of it; profile/check/dotfiles here are the detail.
 _section "Baseline (install.sh profile, install.sh check, install.sh dotfiles)"
 bash "$CMD_DIR/profile.sh" || true
 printf '\n'
@@ -99,7 +99,45 @@ else                      bash "$CMD_DIR/monitor.sh"         || true
 fi
 
 # ============================================================================
-# 3. Hardware keys — wev-guided checklist
+# 3. Infinite Desktop input access (udev uaccess)
+# ============================================================================
+# Reuses: install.sh input entirely. The evdev daemon can read your keyboard and
+# pointer (a REL mouse OR an ABS/ABS_MT touchpad) once the udev `uaccess` rule is
+# installed and udev is reloaded. Under --apply this offers to write the rule
+# (root only — as a normal user it prints the exact privileged commands instead
+# of failing a write).
+#
+# VERIFIED on this host (Lenovo 82SC): `sudo udevadm control --reload` +
+# `sudo udevadm trigger --subsystem-match=input --action=change` applied the ACL
+# to the already-existing event nodes immediately, with NO logout — getfacl
+# showed `user:<you>:rw` and the running daemon picked the devices up on its
+# next rescan. Re-login / reboot stays the fallback if the ACL does not appear.
+_section "Infinite Desktop input access (install.sh input)"
+if [ "$APPLY" = 1 ]; then bash "$CMD_DIR/input.sh" --apply || true
+else                      bash "$CMD_DIR/input.sh"         || true
+fi
+cat <<'EOF'
+
+  Still to validate here, for real, after applying the rule + reload + trigger:
+    - `getfacl /dev/input/event* | grep "user:$(id -un)"` shows a `:rw` entry on
+      your keyboard and pointer (mouse/touchpad) nodes. If it does NOT, log out
+      and back in (or reboot) and re-check.
+    - Infinite Desktop pans on SUPER+ALT + mouse OR one finger on the touchpad,
+      and /tmp/infinite-desktop.log shows "Teclado detectado" +
+      "Mouse detectado" / "Touchpad detectado".
+    - REVERT behaviour: after `sudo rm` of the rule + `udevadm control --reload`
+      + `udevadm trigger`, check whether the ACL is gone WITHOUT logging out.
+      Whether the trigger alone revokes it was not tested here — if it survives,
+      a re-login (or reboot) is the guaranteed way to drop it. Record what you saw.
+EOF
+if _ask "Has the udev rule been applied, udev reloaded, and the checks above verified?"; then
+    log::ok "Infinite Desktop input access confirmed"
+else
+    log::info "pending — run ./install.sh input (as root), reload udev + trigger, then re-check"
+fi
+
+# ============================================================================
+# 4. Hardware keys — wev-guided checklist
 # ============================================================================
 # No automation: physically pressing keys cannot be simulated, and this
 # project's own rule (docs/FIRST-RUN.md, written in the laptop-keys stage) is
@@ -141,7 +179,7 @@ else
 fi
 
 # ============================================================================
-# 4. Lid / power-button behaviour — physical test still pending
+# 5. Lid / power-button behaviour — physical test still pending
 # ============================================================================
 # Reuses: docs/FIRST-RUN.md's own lid/suspend checklist (written in the
 # power stage) — this just points at it and asks for confirmation, it does
@@ -162,7 +200,7 @@ else
 fi
 
 # ============================================================================
-# 5. NVIDIA compute backend
+# 6. NVIDIA compute backend
 # ============================================================================
 _section "NVIDIA compute backend"
 if ! nvidia::present; then
@@ -238,7 +276,7 @@ else
 fi
 
 # ============================================================================
-# 6. Final summary
+# 7. Final summary
 # ============================================================================
 # Reuses: install.sh doctor entirely.
 _section "Final summary (install.sh doctor)"

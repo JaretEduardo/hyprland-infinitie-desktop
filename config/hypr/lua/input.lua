@@ -7,7 +7,10 @@
 
 hl.config({
     input = {
-        kb_layout    = "us",
+        -- latam: physical layout of this workstation. Validated live with
+        --   hyprctl eval 'hl.config({ input = { kb_layout = "latam" } })'
+        -- Override per-machine in ~/.config/hypr/input.local.lua if ever needed.
+        kb_layout    = "latam",
         follow_mouse = 1,
         sensitivity  = 0,        -- -1.0 .. 1.0 ; 0 = unmodified
 

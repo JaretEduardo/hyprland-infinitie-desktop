@@ -113,15 +113,43 @@ Exit codes: `0` = no errors (warnings alone are fine), `1` = one or more
 Installs the Infinite Desktop scripts into `~/scripts/` (identical files are a
 no-op; a locally modified one is backed up and replaced only after you confirm)
 and reports on the runtime requirements: `python3` / `python-evdev` / `jq`
-(install them with `install.sh deps`) and whether your user is in the `input`
-group (it explains what to run — `sudo usermod -aG input "$USER"` — but **never
-runs it**).
+(install them with `install.sh deps`) and whether the daemon can read your
+keyboard/mouse event devices. Access is granted by `install.sh input` (a udev
+`uaccess` rule — **not** the `input` group); this command only reports and
+never runs `sudo`/`usermod`.
 
 It does **not** touch the Hyprland config. The autostart and keybinds are
 declared in `config/hypr/lua/infinite-desktop.lua`; link them in with
 `./install.sh dotfiles --apply`. `./install-hyprland-infinite-desktop.sh` is a
 compatibility wrapper for this command. See
 [INFINITE-DESKTOP.md](INFINITE-DESKTOP.md).
+
+### `input` — Infinite Desktop input-device access (udev `uaccess`)
+
+```
+./install.sh input             # detect + explain + show the proposed rule (read-only)
+./install.sh input --apply     # write it, after confirmation (needs root)
+```
+
+Writes `config/udev/72-hypr-infinite-input.rules` to `/etc/udev/rules.d/`. It
+tags keyboard, mouse **and touchpad** event nodes with `TAG+="uaccess"`, so
+systemd-logind grants a temporary read/write ACL on them **only to the active
+local session** — not the account-wide `input` group, no `MODE=0666`. Same root
+policy as `gpu` / `power`: read-only by default; under `--apply` it detects,
+explains, shows the exact file and asks first, and as a non-root user it prints
+the exact `sudo install` + `udevadm` commands instead of attempting a doomed
+write. Never runs `sudo`, `udevadm` or `usermod`. `INPUT_SYSROOT=<dir>`
+redirects the write for testing. After applying: `sudo udevadm control --reload
+&& sudo udevadm trigger --subsystem-match=input --action=change`, then check
+`getfacl /dev/input/event* | grep "user:$(id -un)"`. On the Lenovo 82SC this
+repo is developed on, the trigger applied the ACL live with no logout; if the
+entry is missing, log out and back in (or reboot).
+
+**Risk:** a `uaccess` ACL on keyboard nodes lets any process in your active
+session read every keystroke (and every touchpad/mouse motion) while that
+session is active. See
+[INFINITE-DESKTOP.md § 2.6](INFINITE-DESKTOP.md#26-input-device-access) for the
+detail and the stricter privileged-broker alternative.
 
 ### `power` — logind lid / power-key / idle-action policy
 
@@ -149,8 +177,8 @@ file it did not create, and is idempotent. See [POWER.md](POWER.md).
 ```
 
 An orchestrator, not a reimplementation: `desktop` calls `check`, `deps`,
-`dotfiles`, `gpu`, `power`, `infinite-desktop` and `doctor` — in that order —
-exactly as if you ran each one yourself, including its own interactive
+`dotfiles`, `gpu`, `power`, `input`, `infinite-desktop` and `doctor` — in that
+order — exactly as if you ran each one yourself, including its own interactive
 confirmations under `--apply`. It adds no privileged action of its own: no
 `emerge`, no `eselect`, no hidden `sudo`, no `systemctl enable/start`, no
 `usermod`, no silent `/etc` write.
@@ -158,16 +186,16 @@ confirmations under `--apply`. It adds no privileged action of its own: no
 Sequence and why: `check` (preflight) → `deps` (read-only; **stops before any
 write** if required packages are missing on Gentoo, so `--apply` never
 touches config on top of a broken dependency set) → `dotfiles` → `gpu` →
-`power` → `infinite-desktop` → `doctor` (this is also where NetworkManager /
-PipeWire-WirePlumber presence and the overall readiness summary are checked —
-already covered there, not duplicated here). If any step after `deps` fails,
-the sequence stops at that step — nothing after it runs — but `doctor` still
-runs at the end regardless, as a read-only snapshot of wherever things were
-left.
+`power` → `input` → `infinite-desktop` → `doctor` (this is also where
+NetworkManager / PipeWire-WirePlumber presence and the overall readiness
+summary are checked — already covered there, not duplicated here). If any step
+after `deps` fails, the sequence stops at that step — nothing after it runs —
+but `doctor` still runs at the end regardless, as a read-only snapshot of
+wherever things were left.
 
 **Not Gentoo (e.g. this repo developed on Fedora):** plan mode runs exactly
-the same. Under `--apply`, `gpu` and `power` — the two steps that write real
-files under `/etc` — stay plan-only even so; this repo's target is Gentoo,
+the same. Under `--apply`, `gpu`, `power` and `input` — the steps that write
+real files under `/etc` — stay plan-only even so; this repo's target is Gentoo,
 and a non-Gentoo host is never used to apply those changes for real.
 `dotfiles` and `infinite-desktop` (both user-space, under `$HOME`) still run
 for real under `--apply` on any distro.
@@ -231,7 +259,7 @@ confirmations still work exactly as a direct call would:
    context (see [PROFILES.md](PROFILES.md)).
 2. **Desktop configuration** — one call to `install.sh desktop` (`--apply`
    or plan, matching `full`'s own mode). This alone already covers
-   `check` → the deps gate → `dotfiles` → `gpu` → `power` →
+   `check` → the deps gate → `dotfiles` → `gpu` → `power` → `input` →
    `infinite-desktop` → `doctor`; `full` does not call `check` / `deps` /
    `doctor` a second time on top of it — that would only repeat output that
    already answered the question.

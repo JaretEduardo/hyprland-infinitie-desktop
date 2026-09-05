@@ -20,10 +20,10 @@
 #                                    exported (common.sh already does this),
 #                                    so every step it reaches writes nothing
 #
-# Sequence: check -> deps -> dotfiles -> gpu -> power -> infinite-desktop ->
-# doctor. doctor is also where "network/audio services present" is verified
-# and where the final readiness summary comes from — it already checks both,
-# so this is the one place, not two.
+# Sequence: check -> deps -> dotfiles -> gpu -> power -> input ->
+# infinite-desktop -> doctor. doctor is also where "network/audio services
+# present" is verified and where the final readiness summary comes from — it
+# already checks both, so this is the one place, not two.
 #
 # NEVER done here, no matter what: emerge, eselect, sudo, systemctl
 # enable/start, usermod, or a silent /etc write — those stay exactly as
@@ -188,6 +188,22 @@ if [ "$FAILED" = 0 ]; then
     else
         [ "$APPLY" = 1 ] && log::info "Power config: plan only (not Gentoo) — see above for why"
         _step "Power config (install.sh power)" power.sh || true
+    fi
+fi
+
+# ---- 5b. Infinite Desktop input access (udev uaccess; /etc write) --------
+# Same treatment as gpu/power: it writes to /etc/udev/rules.d, so on a
+# non-Gentoo preflight it stays plan-only even under --apply. Run as a non-root
+# user, input.sh --apply does NOT attempt a doomed write — it prints the exact
+# privileged commands and exits non-zero; in practice the gpu step above has
+# already stopped the sequence in that case, so `install.sh desktop --apply` is
+# a run-as-root flow and this step then writes cleanly.
+if [ "$FAILED" = 0 ]; then
+    if [ "$APPLY" = 1 ] && [ "$IS_GENTOO" = 1 ]; then
+        _step "Infinite Desktop input access (install.sh input --apply)" input.sh --apply || { FAILED=1; FAIL_STEP="input"; }
+    else
+        [ "$APPLY" = 1 ] && log::info "Infinite Desktop input access: plan only (not Gentoo) — see above for why"
+        _step "Infinite Desktop input access (install.sh input)" input.sh || true
     fi
 fi
 

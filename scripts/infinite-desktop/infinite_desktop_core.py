@@ -1,4 +1,4 @@
-import sys, struct, threading, time, subprocess, json, os
+import sys, struct, threading, time, subprocess, json, os, glob
 import fcntl
 import select
 import math
@@ -6,6 +6,7 @@ from evdev import InputDevice, list_devices, ecodes
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hypr_ipc import move_window_exact_lua, batch_async
+from abs_delta import AbsDeltaTracker, units_to_pixels
 
 #ruta deseada /home/usuario/scripts/
 
@@ -24,12 +25,36 @@ KEY_LEFT=105; KEY_RIGHT=106
 KEY_UP=103; KEY_DOWN=108
 BTN_LEFT=272
 
+# --- Touchpad (absolute) -> pixel-delta conversion -----------------------------
+# A bare touchpad reports finger POSITION, not motion. touchpad_reader_device()
+# turns the change in position between frames into a screen-pixel delta so it
+# feeds the exact same acc_x/acc_y path as a REL mouse (see abs_delta.py).
+#
+# Nothing here is specific to any one touchpad model: the per-axis unit density
+# is read from the device's own EV_ABS resolution (AbsInfo.resolution, in
+# units/mm) at open time. Only these two model-independent constants are fixed:
+#
+#   TOUCHPAD_PIXELS_PER_MM       screen px per mm of finger travel, BEFORE the
+#                               daemon's `speed` multiplier. ~6-10 feels close
+#                               to 1:1 on a typical laptop panel; tune here.
+#   TOUCHPAD_FALLBACK_UNITS_PER_MM   used ONLY when the kernel reports no
+#                               resolution for an axis (AbsInfo.resolution == 0).
+#                               ~12 units/mm is the near-universal density for
+#                               Windows Precision Touchpads. A fallback, not a
+#                               tuning knob.
+TOUCHPAD_PIXELS_PER_MM = 8.0
+TOUCHPAD_FALLBACK_UNITS_PER_MM = 12.0
+
+# "Nothing to pan" notice: rate-limit so the 16 ms loop cannot spam the log.
+NO_FLOATING_WARN_INTERVAL = 5.0
+
 STATE_FILE = "/tmp/infinite-desktop-state"
 PROTECTED_APPS = ['brave-browser', 'chromium', 'chromium-browser', 'google-chrome', 
                   'firefox', 'firefoxdeveloperedition', 'librewolf', 'vivaldi', 
                   'opera', 'microsoft-edge']
 
 lock = threading.Lock()
+_perm_denied = set()   # /dev/input/event* nodes we were denied access to (diagnostics only)
 super_pressed=False; alt_pressed=False; ctrl_pressed=False; btn_left=False
 acc_x=0.0; acc_y=0.0
 frame_held_hidden=False  # último estado notificado a quickshell (evita spam de llamadas ipc)
@@ -295,26 +320,45 @@ def move_active_window(direction):
 
 
 def classify_device(path):
-    """Devuelve 'mouse', 'keyboard' o None segun las capacidades reales del dispositivo,
-    sin importar el nombre/marca. Esto es lo que permite que funcione con cualquier
-    mouse o teclado (alambrico, inalambrico, el que sea)."""
+    """Devuelve 'mouse', 'touchpad', 'keyboard' o None segun las capacidades e
+    input-properties reales del dispositivo, sin importar el nombre/marca ni el
+    numero de nodo. Esto es lo que permite que funcione con cualquier raton,
+    touchpad o teclado (alambrico, inalambrico, el que sea)."""
     try:
         dev = InputDevice(path)
-        caps = dev.capabilities()
+        caps = dev.capabilities(absinfo=False)   # solo codigos, no AbsInfo
+        props = set(dev.input_props())
         dev.close()
+    except PermissionError:
+        _perm_denied.add(path)
+        return None
     except Exception:
         return None
 
     keys = set(caps.get(ecodes.EV_KEY, []))
     rels = set(caps.get(ecodes.EV_REL, []))
+    abss = set(caps.get(ecodes.EV_ABS, []))
 
-    is_mouse = (ecodes.REL_X in rels and ecodes.REL_Y in rels and ecodes.BTN_LEFT in keys)
-    if is_mouse:
+    # 1. Raton relativo (sin cambios): REL_X + REL_Y + BTN_LEFT.
+    if ecodes.REL_X in rels and ecodes.REL_Y in rels and ecodes.BTN_LEFT in keys:
         return 'mouse'
 
-    # Un teclado "real" tiene el rango completo de teclas alfanumericas y las teclas Meta,
-    # esto excluye las interfaces auxiliares (Consumer Control, System Control) que
-    # muchos recievers 2.4G tambien exponen.
+    # 2. Touchpad absoluto: un puntero (INPUT_PROP_POINTER) que NO es una
+    #    pantalla tactil (INPUT_PROP_DIRECT), que expone un par X/Y absoluto
+    #    (multitouch preferido, ABS_X/ABS_Y como fallback) y BTN_TOUCH para el
+    #    ciclo de contacto. Esto excluye tabletas graficas, touchscreens y las
+    #    interfaces auxiliares.
+    has_mt_xy = (ecodes.ABS_MT_POSITION_X in abss and ecodes.ABS_MT_POSITION_Y in abss)
+    has_st_xy = (ecodes.ABS_X in abss and ecodes.ABS_Y in abss)
+    if ((has_mt_xy or has_st_xy)
+            and ecodes.INPUT_PROP_POINTER in props
+            and ecodes.INPUT_PROP_DIRECT not in props
+            and ecodes.BTN_TOUCH in keys):
+        return 'touchpad'
+
+    # 3. Teclado "real": rango alfanumerico completo + Meta. Excluye las
+    #    interfaces Consumer Control / System Control que muchos receivers 2.4G
+    #    tambien exponen.
     is_keyboard = (
         ecodes.KEY_A in keys and ecodes.KEY_Z in keys and ecodes.KEY_LEFTSHIFT in keys
         and (ecodes.KEY_LEFTMETA in keys or ecodes.KEY_RIGHTMETA in keys)
@@ -326,14 +370,23 @@ def classify_device(path):
 
 
 def scan_devices():
-    keyboards, mice = [], []
+    keyboards, mice, touchpads = [], [], []
     for path in list_devices():
         kind = classify_device(path)
         if kind == 'mouse':
             mice.append(path)
+        elif kind == 'touchpad':
+            touchpads.append(path)
         elif kind == 'keyboard':
             keyboards.append(path)
-    return keyboards, mice
+    return keyboards, mice, touchpads
+
+
+def inaccessible_event_nodes():
+    """event* nodes that exist but this process cannot read. evdev's list_devices()
+    requires R_OK|W_OK and silently drops the rest, so without this the daemon would
+    just sit idle with no hint why."""
+    return [p for p in sorted(glob.glob('/dev/input/event*')) if not os.access(p, os.R_OK)]
 
 
 def kbd_reader_device(path):
@@ -341,6 +394,10 @@ def kbd_reader_device(path):
     global super_pressed, alt_pressed, ctrl_pressed, frame_held_hidden
     try:
         fd = open(path, 'rb')
+    except PermissionError:
+        _perm_denied.add(path)
+        print(f"[!] permiso denegado al abrir {path} — ejecuta: ./install.sh input", flush=True)
+        return
     except Exception:
         return
 
@@ -389,6 +446,10 @@ def mouse_reader_device(path):
     global acc_x, acc_y, btn_left, mouse_rel_x, mouse_rel_y
     try:
         fd = open(path, 'rb')
+    except PermissionError:
+        _perm_denied.add(path)
+        print(f"[!] permiso denegado al abrir {path} — ejecuta: ./install.sh input", flush=True)
+        return
     except Exception:
         return
 
@@ -426,13 +487,90 @@ def mouse_reader_device(path):
         pass
 
 
+def touchpad_reader_device(path):
+    """Lee UN touchpad absoluto y lo convierte al MISMO acc_x/acc_y que el camino
+    REL del raton. Un hilo por touchpad (device_manager).
+
+    Un touchpad reporta POSICION del dedo, no movimiento: abs_delta.AbsDeltaTracker
+    convierte el cambio de posicion entre frames (SYN_REPORT) en un delta en
+    unidades del dispositivo; aqui ese delta se pasa a pixeles usando la
+    resolucion real del eje (AbsInfo.resolution) y se acumula bajo el mismo
+    `lock`, respetando la misma condicion Super+Alt. NO usa la posicion absoluta
+    como delta, ignora la primera muestra de cada contacto y resetea la baseline
+    al levantar el dedo (todo en AbsDeltaTracker)."""
+    global acc_x, acc_y, btn_left
+    try:
+        dev = InputDevice(path)
+    except PermissionError:
+        _perm_denied.add(path)
+        print(f"[!] permiso denegado al abrir {path} — ejecuta: ./install.sh input", flush=True)
+        return
+    except Exception:
+        return
+
+    try:
+        caps = dev.capabilities(absinfo=True)
+        abs_map = dict(caps.get(ecodes.EV_ABS, []))   # {code: AbsInfo}
+        if ecodes.ABS_MT_POSITION_X in abs_map and ecodes.ABS_MT_POSITION_Y in abs_map:
+            code_x, code_y = ecodes.ABS_MT_POSITION_X, ecodes.ABS_MT_POSITION_Y
+        else:
+            code_x, code_y = ecodes.ABS_X, ecodes.ABS_Y
+        ax, ay = abs_map.get(code_x), abs_map.get(code_y)
+        if ax is None or ay is None:
+            dev.close()
+            return
+        range_x = ax.max - ax.min
+        range_y = ay.max - ay.min
+        res_x = ax.resolution or TOUCHPAD_FALLBACK_UNITS_PER_MM
+        res_y = ay.resolution or TOUCHPAD_FALLBACK_UNITS_PER_MM
+    except Exception:
+        try:
+            dev.close()
+        except Exception:
+            pass
+        return
+
+    tracker = AbsDeltaTracker(code_x, code_y, range_x, range_y)
+
+    try:
+        for e in dev.read_loop():
+            if e.type == ecodes.EV_KEY and e.code == BTN_LEFT:
+                with lock:
+                    btn_left = (e.value == 1)
+                continue
+
+            d = tracker.feed(e.type, e.code, e.value)
+            if d is None:
+                continue
+            px = units_to_pixels(d[0], res_x, TOUCHPAD_PIXELS_PER_MM)
+            py = units_to_pixels(d[1], res_y, TOUCHPAD_PIXELS_PER_MM)
+
+            with lock:
+                if super_pressed and alt_pressed:
+                    sign = -1 if read_inverted() else 1
+                    acc_x += px * speed * sign
+                    acc_y += py * speed * sign
+                else:
+                    acc_x = 0.0
+                    acc_y = 0.0
+    except Exception:
+        pass
+    finally:
+        try:
+            dev.close()
+        except Exception:
+            pass
+
+
 _active_kbd_threads = {}
 _active_mouse_threads = {}
+_active_touchpad_threads = {}
 
 def device_manager():
-    """Escanea periodicamente /dev/input buscando teclados y mouses nuevos
-    (o reconectados) y lanza un hilo lector para cada uno. Si un dispositivo
-    se desconecta, su hilo simplemente termina solo al fallar el read().
+    """Escanea periodicamente /dev/input buscando teclados, mouses REL y
+    touchpads absolutos nuevos (o reconectados) y lanza un hilo lector para
+    cada uno, sin duplicar lectores del mismo path. Si un dispositivo se
+    desconecta, su hilo termina solo al fallar el read()/read_loop().
 
     Los primeros segundos (WARMUP_DURATION) escanea mucho mas seguido
     (WARMUP_INTERVAL) porque justo al iniciar sesion, dongles inalambricos
@@ -441,10 +579,22 @@ def device_manager():
     WARMUP_DURATION = 20.0
     WARMUP_INTERVAL = 0.5
     start_time = time.time()
+    warned_no_access = False
 
     while True:
         try:
-            keyboards, mice = scan_devices()
+            keyboards, mice, touchpads = scan_devices()
+
+            if not warned_no_access and not keyboards and not mice and not touchpads:
+                blocked = inaccessible_event_nodes()
+                if blocked:
+                    warned_no_access = True
+                    print(f"[!] Sin dispositivos de entrada accesibles: {len(blocked)} nodo(s) "
+                          "/dev/input/event* existen pero este usuario no puede leerlos.", flush=True)
+                    print("    Infinite Desktop necesita leer tu teclado y tu raton/touchpad (evdev, solo lectura).", flush=True)
+                    print("    Solucion: ./install.sh input   (ACL por sesion via udev uaccess), "
+                          "luego cierra y reabre la sesion.", flush=True)
+                    print("    Detalles y riesgos: docs/INFINITE-DESKTOP.md 'Input device access'.", flush=True)
 
             for path in keyboards:
                 t = _active_kbd_threads.get(path)
@@ -461,6 +611,14 @@ def device_manager():
                     nt.start()
                     _active_mouse_threads[path] = nt
                     print(f"[+] Mouse detectado: {path}", flush=True)
+
+            for path in touchpads:
+                t = _active_touchpad_threads.get(path)
+                if t is None or not t.is_alive():
+                    nt = threading.Thread(target=touchpad_reader_device, args=(path,), daemon=True)
+                    nt.start()
+                    _active_touchpad_threads[path] = nt
+                    print(f"[+] Touchpad detectado: {path}", flush=True)
         except Exception as e:
             print(f"Error en device_manager: {e}", flush=True)
 
@@ -480,7 +638,7 @@ threading.Thread(target=device_manager, daemon=True).start()
 threading.Thread(target=monitor_window_drag, daemon=True).start()
 print("Infinite Desktop activo (deteccion automatica de dispositivos)", flush=True)
 print("Super+click: Arrastrar ventana (al tocar borde, el raton mueve el resto)", flush=True)
-print("Super+Alt+mouse: Arrastrar todo el escritorio", flush=True)
+print("Super+Alt+mouse/touchpad: Arrastrar todo el escritorio", flush=True)
 print("Super+flechas: Navegacion via hyprland bind", flush=True)
 print("Super+Shift+flechas: Mover ventana activa via hyprland bind", flush=True)
 
@@ -502,6 +660,18 @@ def get_cached_workspace_id():
         except:
             pass
     return _cached_workspace_id
+
+_last_no_floating_warn = 0.0
+
+def _warn_no_floating_if_due():
+    """Aviso rate-limited: Super+Alt activo y con movimiento, pero el workspace
+    no tiene ninguna ventana floating que panear. NO se emite cada 16 ms."""
+    global _last_no_floating_warn
+    now = time.time()
+    if now - _last_no_floating_warn >= NO_FLOATING_WARN_INTERVAL:
+        _last_no_floating_warn = now
+        print("[!] No hay ventanas floating en este workspace; "
+              "Infinite Desktop no tiene nada que panear.", flush=True)
 
 # Loop principal para arrastre de escritorio
 while True:
@@ -531,12 +701,14 @@ while True:
         r = subprocess.run(['hyprctl', 'clients', '-j'], capture_output=True, text=True, timeout=0.1)
         clients = json.loads(r.stdout)
 
-        exprs = []
-        for w in clients:
-            if w.get('floating') and w.get('workspace', {}).get('id') == workspace_id:
-                nx = w['at'][0] + idx
-                ny = w['at'][1] + idy
-                exprs.append(move_window_exact_lua(nx, ny, w['address']))
+        floating_here = [w for w in clients
+                         if w.get('floating') and w.get('workspace', {}).get('id') == workspace_id]
+
+        if not floating_here:
+            _warn_no_floating_if_due()
+
+        exprs = [move_window_exact_lua(w['at'][0] + idx, w['at'][1] + idy, w['address'])
+                 for w in floating_here]
 
         batch_async(exprs)
     except Exception as e:

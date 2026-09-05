@@ -30,6 +30,8 @@ bin/
                                  anywhere by any --apply flow — see HYBRID-GPU.md
 config/
   gpu/                         modprobe.d + udev templates for the hybrid GPU
+  udev/                        udev rule granting the Infinite Desktop daemon
+                                 session-scoped input-device access (install.sh input)
   hypr/                        modular Hyprland Lua config (see below)
   hypridle/  hyprlock/         idle ladder + lock screen config (see POWER.md)
   logind/                      logind.conf.d drop-in for lid/power-key/idle-action
@@ -45,20 +47,20 @@ docs/                          per-topic documentation
 `install.sh` resolves its own location (following symlinks, ignoring the cwd)
 and hands off to `install/common.sh`, which registers commands and dispatches to
 `install/cmd/<name>.sh`. Read-only commands (`check`, `doctor`, `deps`, and the
-plan mode of `gpu` / `dotfiles` / `power`) never change anything. Commands
+plan mode of `gpu` / `dotfiles` / `power` / `input`) never change anything. Commands
 that write follow **detect → explain → show the exact change → confirm →
 apply**, honour `--dry-run`, never call `sudo` (they print the exact
 command), and are idempotent. See [INSTALL.md](INSTALL.md).
 
 `desktop` sits on top of all of them as a pure orchestrator: it calls
-`check`/`deps`/`dotfiles`/`gpu`/`power`/`infinite-desktop`/`doctor` in
+`check`/`deps`/`dotfiles`/`gpu`/`power`/`input`/`infinite-desktop`/`doctor` in
 sequence, each exactly as `install.sh <cmd>` would run it (including its own
 confirmations under `--apply`), and adds no detection or write logic of its
 own. `install/cmd/desktop.sh` stops the sequence on the first step that fails
 after `deps` (with `doctor` still run at the end as a read-only snapshot),
-and keeps `gpu --apply` / `power --apply` plan-only on a non-Gentoo host —
-the two steps that write real files under `/etc` are never applied for real
-off the Gentoo target.
+and keeps `gpu --apply` / `power --apply` / `input --apply` plan-only on a
+non-Gentoo host — the steps that write real files under `/etc` are never
+applied for real off the Gentoo target.
 
 `profile` sits underneath `check`/`doctor`/`first-run`, not beside them in
 the sequence: it detects which `profiles/<id>/` applies to the real machine
@@ -80,8 +82,8 @@ is a guided checklist that reuses `check`/`dotfiles`/`monitor`/`doctor` and
 `full` sits above all of it as the top-level orchestrator, and is itself an
 orchestrator of orchestrators, not a third implementation: it calls
 `profile` once for context, `desktop` once (which already is check → the
-deps gate → dotfiles → gpu → power → infinite-desktop → doctor, as covered
-above), and `first-run` once — offered, never forced, only inside a live
+deps gate → dotfiles → gpu → power → input → infinite-desktop → doctor, as
+covered above), and `first-run` once — offered, never forced, only inside a live
 Hyprland session and only after `desktop` succeeded. The intended sequence
 for a brand new machine is:
 
@@ -187,4 +189,17 @@ floating windows, talking to Hyprland through a single compatibility layer
 by `dotfiles`. `install.sh infinite-desktop` only installs the runtime scripts
 to `~/scripts/` — it does not edit the Hyprland config, install packages, or run
 `sudo`. (The old `patch_hyprland.py`, which appended to and remapped
-`hyprland.lua`, has been removed.) See [INFINITE-DESKTOP.md](INFINITE-DESKTOP.md).
+`hyprland.lua`, has been removed.)
+
+The daemon reads `/dev/input/event*` directly (read-only, no `grab()`) — a REL
+mouse **or** an ABS/ABS_MT touchpad for pointer motion (validated on the Lenovo
+82SC's Precision Touchpad), keyboards for modifier state. Access is the second
+file that needs root: `install.sh input` writes
+`config/udev/72-hypr-infinite-input.rules` to `/etc/udev/rules.d/`, tagging
+keyboard + mouse + touchpad nodes with `uaccess` so systemd-logind grants a
+**session-scoped** ACL — not the account-wide `input` group. Same root policy as
+`gpu` / `power` (detect → explain → show → confirm; prints the privileged
+commands rather than failing a write as a non-root user); on this host the
+`udevadm control --reload` + `trigger` applied the ACL live, no logout. The
+keystroke-exposure risk and a stricter privileged-broker alternative are in
+[INFINITE-DESKTOP.md](INFINITE-DESKTOP.md#26-input-device-access).

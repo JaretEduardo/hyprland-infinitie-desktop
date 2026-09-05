@@ -18,7 +18,7 @@ used to ship inside `scripts/files.zip` (parts of which are now obsolete — see
 
 | Action | Default bind | Script |
 | --- | --- | --- |
-| Pan the whole floating canvas | hold `SUPER + ALT` + move mouse | `infinite_desktop_core.py` |
+| Pan the whole floating canvas | hold `SUPER + ALT` + move the mouse or drag one finger on the touchpad | `infinite_desktop_core.py` |
 | Drag one window; push the rest at the screen edge | hold `SUPER` + left-drag | `infinite_desktop_core.py` |
 | Navigate / focus the next window | `SUPER + ←/→/↑/↓` | `navigate_windows.py` |
 | Move the active floating window (repeatable) | `SUPER + SHIFT + ←/→/↑/↓` | `move_window.py` |
@@ -66,23 +66,37 @@ arguments; devices are auto-detected (see 2.3).
 
 ### 2.2 evdev → core
 
-- The daemon opens input devices directly (`/dev/input/event*`), which is why the
-  installing user must be in the **`input` group** (`sudo usermod -aG input $USER`,
-  effective after re-login). `install.sh infinite-desktop` checks this and
-  explains it but **never runs `usermod`**. Note that `input` group membership
-  grants any of your processes read access to *all* input events on the system;
-  a tighter model (an ACL, or a small privileged helper) can be chosen at
-  first-run.
-- A `device_manager` thread rescans for new/reconnected keyboards and mice
-  (every 0.5 s for the first 20 s to let wireless dongles finish enumerating,
-  then every 3 s). One reader thread is spawned per device; a disconnected
-  device's thread ends by itself when `read()` fails.
-- `classify_device()` decides *mouse* vs *keyboard* from **evdev capabilities,
-  not device names**: a mouse has `REL_X + REL_Y + BTN_LEFT`; a "real" keyboard
-  has the full `A…Z` range, `LEFTSHIFT`, and a Meta key (this deliberately
-  excludes the "Consumer Control" / "System Control" sub-interfaces that 2.4 GHz
-  receivers also expose).
-- Reader threads update shared modifier/mouse state under a single
+- The daemon opens input devices directly (`/dev/input/event*`, read-only — it
+  does **not** `grab()` them). Access is granted by **`install.sh input`**, not
+  the `input` group — see [Input device access](#26-input-device-access) below.
+- A `device_manager` thread rescans for new/reconnected keyboards, mice **and
+  touchpads** (every 0.5 s for the first 20 s to let wireless dongles finish
+  enumerating, then every 3 s). One reader thread is spawned per device, keyed
+  by path so a device is never double-read; a disconnected device's thread ends
+  by itself when the read fails.
+- `classify_device()` decides *mouse* vs *touchpad* vs *keyboard* from **evdev
+  capabilities + input properties, not device names or node numbers**:
+  - **mouse** — `REL_X + REL_Y + BTN_LEFT` (unchanged).
+  - **touchpad** — an absolute X/Y pair (`ABS_MT_POSITION_X/Y`, or `ABS_X/Y` as
+    a fallback) **and** `INPUT_PROP_POINTER` **and not** `INPUT_PROP_DIRECT`
+    (that last exclusion keeps a touchscreen or a graphics tablet from being
+    treated as a touchpad) **and** `BTN_TOUCH`.
+  - **keyboard** — the full `A…Z` range, `LEFTSHIFT` and a Meta key (excludes
+    the "Consumer Control" / "System Control" sub-interfaces 2.4 GHz receivers
+    also expose).
+- A **touchpad reports finger position, not motion.** `touchpad_reader_device()`
+  feeds events to `abs_delta.AbsDeltaTracker` (a pure, unit-tested transform),
+  which returns the per-`SYN_REPORT` change in position in device units; the
+  reader scales that to pixels with the axis' own `AbsInfo.resolution`
+  (units/mm) and two model-independent constants (`TOUCHPAD_PIXELS_PER_MM`,
+  `TOUCHPAD_FALLBACK_UNITS_PER_MM`), then accumulates into the **same
+  `acc_x`/`acc_y`** the REL-mouse path uses, under the same lock and the same
+  `Super+Alt` gate. The first sample of each contact only sets a baseline (no
+  jump on finger-down); a finger lift resets it (a new contact never inherits
+  the old position); 2+ fingers are ignored (scroll/palm); a per-frame delta
+  larger than half the axis range is dropped (slot-switch guard). Details and
+  the synthetic tests: `abs_delta.py` / `test_abs_delta.py`.
+- Reader threads update shared modifier / pointer state under a single
   `threading.Lock`. The main loop (16 ms tick) and a `monitor_window_drag`
   thread consume that state.
 
@@ -119,6 +133,104 @@ overlay while the desktop is being dragged. Details:
 
 This is a hint to an external shell and is **entirely optional**: Infinite Desktop
 works with no Quickshell running.
+
+### 2.6 Input device access
+
+The daemon reads `/dev/input/event*` directly (keyboards for Super/Alt/Ctrl
+state, a REL mouse **or** an ABS/ABS_MT touchpad for pointer motion +
+`BTN_LEFT`). By default those nodes are `crw-rw---- root input`, so a normal
+user cannot open them and the daemon sits idle — it now prints a clear
+diagnostic and points at `install.sh input` when that happens
+(`evdev.list_devices()` silently hides nodes it cannot read, so the daemon also
+scans `/dev/input/event*` itself to notice them).
+
+**The model is a udev `uaccess` rule, not the `input` group.**
+`config/udev/72-hypr-infinite-input.rules` tags keyboard, mouse **and touchpad**
+event nodes with `TAG+="uaccess"`; systemd-logind then grants a POSIX ACL
+(`user:<you>:rw`) on them **only to the user owning the currently active local
+session on the seat**, and drops it when that session is no longer active or
+ends. It is not an account-wide grant and never applies to SSH / remote
+sessions.
+
+| | `input` group | this repo: udev `uaccess` |
+| --- | --- | --- |
+| scope in time | permanent, until removed + re-login | only while your session is the active one |
+| scope by session | every session incl. TTY / SSH | active local seat session only |
+| devices | all input devices, present and future | keyboards + mice + touchpads only |
+| revert | `gpasswd -d`, then re-login | `rm` the rule + `udevadm` reload/trigger |
+
+Install it with:
+
+```bash
+sudo ./install.sh input --apply      # or: ./install.sh input   (plan only)
+sudo udevadm control --reload
+sudo udevadm trigger --subsystem-match=input --action=change
+getfacl /dev/input/event* | grep "user:$(id -un)"   # verify the ACL is there
+```
+
+On the machine this was developed on (Lenovo 82SC — see [§ 2.7](#27-validated-on-real-hardware))
+the `reload` + `trigger` applied the ACL to the already-existing event nodes
+**immediately, with no logout**, and the running daemon picked the devices up on
+its next rescan. That is not guaranteed everywhere: **if `getfacl` shows no
+`user:<you>` entry after the trigger, log out and back in (or reboot)** — that
+always works.
+
+`install.sh input` follows the same root policy as `install.sh gpu` /
+`install.sh power`: read-only by default, and under `--apply` it detects,
+explains, shows the exact file and asks before writing. Run as a normal user it
+does **not** attempt a doomed write — it prints the exact privileged commands
+and exits. It never runs `sudo`, `udevadm` or `usermod`. `INPUT_SYSROOT=<dir>`
+redirects the write for testing the whole flow without touching `/etc`.
+
+**Risk — read this.** A `uaccess` ACL on keyboard nodes means **any process
+running in your active graphical session can read every keystroke** (passwords
+included), plus every touchpad/mouse motion, for as long as that session is
+active. This is inherent to any evdev consumer that is not a privileged broker;
+`uaccess` bounds the exposure to the active local session but does not remove
+it.
+
+**Stricter alternative (not implemented).** The exposure can be removed
+entirely by splitting the daemon: a tiny privileged *reader* unit (a
+hard-sandboxed systemd service — `ProtectSystem=strict`, `PrivateNetwork=yes`,
+`SystemCallFilter=`, `NoNewPrivileges=`) that opens the evdev nodes and
+publishes only the distilled state (three modifier booleans + mouse deltas +
+`BTN_LEFT`) over a unix socket in `$XDG_RUNTIME_DIR`; the in-session daemon
+consumes that and never opens `/dev/input`. This adds a second process, an IPC
+protocol and new failure modes to a component that must not break Infinite
+Desktop, Quickshell or the current binds, so it is deliberately left as a future
+option rather than the default.
+
+### 2.7 Validated on real hardware
+
+End-to-end, on real hardware, on **Lenovo 82SC** (Ideapad, AMD; `profiles/lenovo-82sc/`):
+
+- **Touchpad:** `MSFT0001:00 06CB:CE78 Touchpad` — a Windows **Precision
+  Touchpad** driven by `hid-multitouch`, exposing a dual node (a relative
+  "Mouse" node that stays silent in PTP mode, and this absolute `ABS_MT` node).
+  `classify_device()` tags it `touchpad`; `touchpad_reader_device()` +
+  `abs_delta.AbsDeltaTracker` turn its `ABS_MT_POSITION_X/Y` frames into pixel
+  deltas.
+- **uaccess:** the udev rule's `ID_INPUT_TOUCHPAD` line gave the touchpad node
+  `user:<you>:rw` via logind; `udevadm control --reload && udevadm trigger
+  --subsystem-match=input --action=change` applied it live, no logout.
+- **Result:** with a terminal set floating (`hl.dsp.window.float({ action =
+  "toggle" })`), holding `SUPER+ALT` and dragging one finger on the touchpad
+  panned the window correctly — so the full **`ABS/ABS_MT` → delta →
+  `acc_x`/`acc_y` → `hyprctl` IPC** path works. No `Traceback` / `ERROR` in
+  `/tmp/infinite-desktop.log`; the daemon logged `[+] Touchpad detectado`
+  alongside the two keyboards and the pointing-stick "Mouse" node.
+- **REL mouse:** still supported unchanged — `classify_device()` returns
+  `mouse` first (`REL_X + REL_Y + BTN_LEFT`), and `mouse_reader_device()` is
+  untouched. Both sources feed the same accumulator.
+- **Scope:** Infinite Desktop currently pans **only floating windows** on the
+  active workspace. An all-tiled workspace has nothing to pan (the daemon says
+  so, rate-limited). Tiled-window behaviour is intentionally unchanged and is a
+  separate decision.
+
+Node numbers are not stable — this same laptop enumerated the touchpad as
+`event6` on one boot and `event9` on another, and the "Mouse" node as `event5`
+then `event8`. Everything matches by `ID_INPUT_*` / evdev capability, never by
+node number or device name.
 
 ---
 
@@ -300,16 +412,19 @@ Once the working spelling is known, edit only the two functions named in 4.3.
 ## 7. Files
 
 All of these live in `scripts/infinite-desktop/` in the repository.
-`install.sh infinite-desktop` copies them **flat** into `~/scripts/` (identical
-files are a no-op; a locally modified one is backed up via `mv` and replaced
-only after you confirm), which is why the Hyprland binds and the autostart line
-refer to `~/scripts/<name>` and the scripts locate each other with
-`os.path.dirname(__file__)` rather than a fixed path. The command does not touch
-the Hyprland config, install packages, or run `sudo`/`usermod`.
+`install.sh infinite-desktop` copies the runtime `*.py`/`*.sh` **flat** into
+`~/scripts/` (identical files are a no-op; a locally modified one is backed up
+via `mv` and replaced only after you confirm; `test_*.py` are **not** copied),
+which is why the Hyprland binds and the autostart line refer to `~/scripts/<name>`
+and the scripts locate each other with `os.path.dirname(__file__)` rather than a
+fixed path. The command does not touch the Hyprland config, install packages, or
+run `sudo`/`usermod`.
 
 | File (under `scripts/infinite-desktop/`) | Role |
 | --- | --- |
 | `infinite_desktop_core.py` | evdev daemon: panning, edge-push drag, keyboard move, Quickshell hint |
+| `abs_delta.py` | pure ABS/ABS_MT-position → per-frame relative-delta transform for touchpads (no I/O) |
+| `test_abs_delta.py` | synthetic-sequence unit tests for `abs_delta.py` (not deployed) |
 | `hypr_ipc.py` | the only place `hyprctl` calls are built; Hyprland-version compat layer |
 | `navigate_windows.py` | `SUPER + arrows` — focus/center the next window (floating vs master vs dwindle) |
 | `move_window.py` | `SUPER + SHIFT + arrows` — move the active floating window, push others at the edge |

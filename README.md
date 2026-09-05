@@ -92,8 +92,9 @@ cd ~/hyprland-infinite-desktop
 ```bash
 ./install.sh full             # PLAN — the whole sequence, read-only, 0 writes
 ./install.sh full --apply     # APPLY — dotfiles, GPU config, power config,
-                               # Infinite Desktop; stops before any write if
-                               # required packages are still missing
+                               # Infinite Desktop + its input-device access;
+                               # stops before any write if required packages
+                               # are still missing
 ```
 
 ```bash
@@ -132,7 +133,8 @@ still pending; inside a live session it offers to run first-run for you.
 | `gpu` | `--apply` | the few `/etc` files the NVIDIA driver doesn't already provide |
 | `power` | `--apply` | the one `logind.conf.d` drop-in this needs root for |
 | `infinite-desktop` | yes (no separate flag; `--dry-run` to preview) | copies runtime scripts to `~/scripts/` |
-| `desktop` | `--apply` | orchestrates dotfiles/gpu/power/infinite-desktop/doctor |
+| `input` | `--apply` | udev `uaccess` rule for the evdev daemon's device access — not the `input` group |
+| `desktop` | `--apply` | orchestrates dotfiles/gpu/power/input/infinite-desktop/doctor |
 | `monitor` | `--apply` | real monitor detection from a live Hyprland session |
 | `first-run` | `--apply` | guided: monitor, wev keys, NVIDIA compute backend |
 | `doctor` | never | read-only diagnostics; `--nvidia-deep` opts into `nvidia-smi` |

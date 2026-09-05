@@ -347,12 +347,62 @@ _have brightnessctl && _ok "brightnessctl present" || _info "brightnessctl not i
 
 # ---- Infinite Desktop / evdev -----------------------------
 _sec "Infinite Desktop / evdev"
-if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx input; then _ok "user is in the 'input' group"
-else _warn "user is NOT in the 'input' group — Infinite Desktop's evdev daemon needs it (sudo usermod -aG input \$USER)"; fi
 if _have python3 && python3 -c 'import evdev' 2>/dev/null; then _ok "python 'evdev' module importable"
 else _warn "python 'evdev' not importable (Gentoo: dev-python/evdev)"; fi
 if [ -d "$HOME/scripts" ] && [ -e "$HOME/scripts/infinite_desktop_core.py" ]; then _ok "Infinite Desktop scripts installed in ~/scripts"
 else _info "Infinite Desktop not installed to ~/scripts yet (install.sh infinite-desktop)"; fi
+
+# Input-device access. The evdev daemon reads /dev/input/event* directly; the
+# repo's model is a udev `uaccess` rule (install.sh input), NOT the `input`
+# group. The real test is "can this user read a keyboard AND a pointer (a REL
+# mouse OR an ABS touchpad) right now".
+_id_rule=/etc/udev/rules.d/72-hypr-infinite-input.rules
+_id_tpl="$REPO_DIR/config/udev/72-hypr-infinite-input.rules"
+if [ -f "$_id_rule" ] && head -n1 "$_id_rule" 2>/dev/null | grep -q 'managed by hyprland-infinitie-desktop'; then
+    # Compare only the effective rule lines (the ACL behaviour depends on those,
+    # not on the comment block).
+    _rule_body() { grep -vE '^[[:space:]]*(#|$)' "$1" 2>/dev/null; }
+    if [ -f "$_id_tpl" ] && [ "$(_rule_body "$_id_rule")" != "$(_rule_body "$_id_tpl")" ]; then
+        _warn "udev uaccess rule installed but OUT OF DATE vs the repo — run: install.sh input (then reload udev + trigger)"
+    elif [ -f "$_id_tpl" ] && ! cmp -s "$_id_rule" "$_id_tpl"; then
+        _ok "udev uaccess rule installed (repo has newer comments only): $_id_rule"
+    else
+        _ok "udev uaccess rule installed: $_id_rule"
+    fi
+elif [ -f "$_id_rule" ]; then
+    _warn "$_id_rule exists but was not written by this installer"
+else
+    _info "udev uaccess rule not installed — run: install.sh input  (then reload udev + trigger)"
+fi
+if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx input; then
+    _warn "user is in the 'input' group — broader than needed; the uaccess rule (install.sh input) replaces it"
+fi
+if _have udevadm && ls /dev/input/event* >/dev/null 2>&1; then
+    _kbd_ok=0; _mouse_ok=0; _tp_ok=0
+    for _d in /dev/input/event*; do
+        [ -e "$_d" ] || continue
+        _props=$(udevadm info -q property -n "$_d" 2>/dev/null)
+        case "$_props" in *"ID_INPUT_KEYBOARD=1"*) [ -r "$_d" ] && _kbd_ok=1 ;; esac
+        case "$_props" in *"ID_INPUT_MOUSE=1"*)    [ -r "$_d" ] && _mouse_ok=1 ;; esac
+        case "$_props" in *"ID_INPUT_TOUCHPAD=1"*) [ -r "$_d" ] && _tp_ok=1 ;; esac
+    done
+    _ptr_ok=0; { [ "$_mouse_ok" = 1 ] || [ "$_tp_ok" = 1 ]; } && _ptr_ok=1
+    _via=""; [ "$_mouse_ok" = 1 ] && _via=mouse
+    [ "$_tp_ok" = 1 ] && _via="${_via:+$_via + }touchpad"
+    if [ "$_kbd_ok" = 1 ] && [ "$_ptr_ok" = 1 ]; then
+        _ok "a keyboard and a usable pointer ($_via) are readable by this user now — the daemon can run"
+    else
+        _miss=""
+        [ "$_kbd_ok" = 0 ] && _miss="a keyboard"
+        [ "$_ptr_ok" = 0 ] && _miss="${_miss:+$_miss and }a pointer (mouse or touchpad)"
+        _warn "the daemon cannot read $_miss yet — run install.sh input (reload + trigger; re-login/reboot only if getfacl still shows no ACL)"
+    fi
+else
+    _info "no udevadm / no /dev/input here — input-access check skipped (verify on the target)"
+fi
+if [ -f /tmp/infinite-desktop.log ] && grep -q 'Sin dispositivos de entrada accesibles' /tmp/infinite-desktop.log 2>/dev/null; then
+    _warn "the running daemon reported it has no accessible input devices (see /tmp/infinite-desktop.log)"
+fi
 
 # ---- summary -------------------------------------------------
 printf '\n%s\n' "────────────────────────────────────────────────────────────"

@@ -31,14 +31,14 @@ export INSTALL_DRY_RUN="${INSTALL_DRY_RUN:-}"
 export INSTALL_VERBOSE="${INSTALL_VERBOSE:-}"
 
 # Commands with a real implementation today (one script per name in install/cmd/).
-_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run profile full kernel-dev"
+_CMD_IMPLEMENTED="check deps gpu doctor dotfiles infinite-desktop input power desktop monitor first-run profile full kernel-dev"
 # Commands recognised but not implemented yet (added in later stages).
 _CMD_PLANNED=""
 # Of the implemented commands, those that honour --dry-run. 'check', 'deps',
 # 'doctor', 'profile' and 'kernel-dev' are read-only; 'gpu', 'dotfiles',
-# 'infinite-desktop', 'power', 'desktop', 'monitor', 'first-run' and 'full'
-# show what they would do and write nothing under --dry-run.
-_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop power desktop monitor first-run profile full kernel-dev"
+# 'infinite-desktop', 'input', 'power', 'desktop', 'monitor', 'first-run' and
+# 'full' show what they would do and write nothing under --dry-run.
+_CMD_DRYRUN_OK="check deps gpu doctor dotfiles infinite-desktop input power desktop monitor first-run profile full kernel-dev"
 
 common::usage() {
     cat <<'EOF'
@@ -58,9 +58,12 @@ Commands:
   dotfiles            Link repo config files into ~/.config (plan; --apply to link)
   infinite-desktop    Install the Infinite Desktop component
                       (evdev daemon + Hyprland keybinds, copied to ~/scripts)
+  input               Grant the Infinite Desktop daemon session-scoped access to
+                      keyboard/mouse event devices via a udev `uaccess` rule —
+                      NOT the `input` group (plan; --apply to write, needs root)
   power               logind lid/power-key/idle-action policy (plan; --apply to write)
                       hypridle/hyprlock config itself is linked by `dotfiles`
-  desktop             Orchestrates check/deps/dotfiles/gpu/power/infinite-desktop/doctor
+  desktop             Orchestrates check/deps/dotfiles/gpu/power/input/infinite-desktop/doctor
                       (plan; --apply to run the real sequence). Reuses each of
                       those commands as-is; adds no new privileged action.
   monitor             Detect real monitors from a live Hyprland session, write

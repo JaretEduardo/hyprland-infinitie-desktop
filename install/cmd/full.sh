@@ -10,11 +10,11 @@
 #
 #   1. profile   — which profiles/<id>/ applies (read-only)
 #   2. desktop   — check -> deps-gate -> dotfiles -> gpu -> power ->
-#                  infinite-desktop -> doctor, as ONE unit (see desktop.sh)
+#                  input -> infinite-desktop -> doctor, as ONE unit (see desktop.sh)
 #   3. first-run — monitor / wev / lid / NVIDIA-backend guidance, only when
 #                  it can mean something (see "First-run" below)
 #
-# full.sh re-detects nothing that profile/check/deps/dotfiles/gpu/power/
+# full.sh re-detects nothing that profile/check/deps/dotfiles/gpu/power/input/
 # desktop/monitor/first-run/doctor already detect. Because desktop.sh already
 # runs check + deps + doctor internally, full.sh does not call check.sh /
 # deps.sh / doctor.sh a second time on top of it — that would just repeat
@@ -190,11 +190,11 @@ else
     log::info "plan / read-only: every step below runs in its own plan mode. Re-run with --apply."
 fi
 if [ "$IS_GENTOO" != 1 ]; then
-    log::warn "this system is not Gentoo — the /etc-writing steps inside desktop (gpu, power)"
+    log::warn "this system is not Gentoo — the /etc-writing steps inside desktop (gpu, power, input)"
     log::warn "stay plan-only even under --apply, exactly as desktop.sh already guarantees."
 fi
 
-# ---- Phase 1: desktop (check, deps-gate, dotfiles, gpu, power, ------------
+# ---- Phase 1: desktop (check, deps-gate, dotfiles, gpu, power, input, ----
 #      infinite-desktop, doctor — as ONE reused unit) ----------------------
 ui::header "Phase 1: Desktop configuration (install.sh desktop, includes dependencies)"
 desktop_exit=0

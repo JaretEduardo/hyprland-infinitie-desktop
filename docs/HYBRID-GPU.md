@@ -89,6 +89,33 @@ need to pin it explicitly. Without one, Aquamarine already auto-selects the
 `boot_vga` GPU (AMD on this laptop) on its own, which is the desired result
 anyway — see `config/hypr/lua/env.lua`.
 
+### Battery mode: `AQ_DRM_DEVICES=/dev/dri/hypr-primary` (AMD only)
+
+Listing **only** the AMD card keeps the NVIDIA GPU entirely out of the
+compositor's KMS backend. Observed on this laptop (driver 610.57.04):
+
+- With `hypr-primary:hypr-secondary`, Aquamarine registers the NVIDIA card as
+  a second KMS backend and polls its connectors (~10 s) — an idle dGPU then
+  never leaves D0.
+- With `hypr-primary` alone, that connector poll is gone and the dGPU
+  reaches **D3cold** during idle. It can still be woken occasionally by a
+  GL client (see "Power / RTD3" below), but it spends far more time
+  suspended.
+
+The cost: **any display physically wired to the NVIDIA GPU is unusable** —
+on this laptop that is the HDMI port. Community reports also show listing
+only the iGPU can, on some setups, hang session startup (add
+`:/dev/dri/hypr-secondary` back if it does).
+
+This is a hand-picked, git-ignored override, not a repo default — put it in
+`~/.config/hypr/gpu.local.lua`:
+
+```lua
+hl.env("AQ_DRM_DEVICES", "/dev/dri/hypr-primary")
+```
+
+and remove the file to go back to the default (NVIDIA HDMI available).
+
 ---
 
 ## `nvidia-offload`
@@ -161,6 +188,32 @@ Observed on driver **610.57.04** with **no** module options set:
 | `nvidia-drm.modeset=1` on the kernel command line | Uses `/etc/modprobe.d` instead — no bootloader edit. |
 | `nvidia-persistenced` enabled permanently | Holds the GPU at D0, defeating ECO/RTD3. Kept disabled. `nvidia-compute-mode compute` still refuses `persistenced` as a backend outright — see "Resolving compute_backend" above. |
 | X11 `xrandr --setprovideroutputsource` / PRIME sync | X11-only, irrelevant on Wayland. |
+
+### "Active" under ECO is usually a wake trade-off, not a broken config
+
+`nvidia-compute-mode status` (and the Quickshell pill) can show `Runtime:
+active` while `Policy=ECO`. That is only a real problem in specific
+conditions. On this laptop, with no CUDA/compute client running, the dGPU
+still cycles between D3cold and D0 every ~15–30 s: a Wayland compositor / GL
+client that touches the NVIDIA userspace stack (client dma-buf imports,
+`eglQueryDevicesEXT` walking every EGL vendor, an Xwayland GLX provider)
+issues an occasional `pm_runtime_get`, which is enough to keep an otherwise
+idle GPU mostly at D0. `AQ_DRM_DEVICES=/dev/dri/hypr-primary` (above) reduces
+this; it does not eliminate it.
+
+`install.sh doctor` grades this instead of always warning:
+
+- **INFO** — `power/control=auto`, `d3cold_allowed=1`, no NVIDIA clients
+  detected, and `runtime_suspended_time > 0` (RTD3 *has* engaged this
+  session). The GPU being active at the instant doctor runs is expected.
+- **WARN** — only when RTD3 looks genuinely defeated: `power/control != auto`,
+  `d3cold_allowed != 1`, an NVIDIA client is holding it, or it has **never**
+  suspended this session.
+
+The client list is a non-root `/proc/<pid>/fd` scan and under-counts;
+doctor reports how many `/proc/<pid>/fd` directories it could not read so
+"none detected" is never presented as certainty. `sudo lsof /dev/nvidia*`
+(or running doctor as root) gives the definitive list.
 
 ### D3hot vs D3cold
 
@@ -353,6 +406,10 @@ are necessarily all the processes responsible. Nothing is ever killed.
 - [ ] whether the GPU reaches **D3cold** or only **D3hot** on this laptop's ACPI
 - [ ] `AQ_DRM_DEVICES` with `/dev/dri/hypr-primary` first actually starts the
       Hyprland session (add `hypr-secondary` if it hangs)
+- [ ] for battery mode: whether `AQ_DRM_DEVICES=/dev/dri/hypr-primary` (AMD
+      only) holds D3cold longer, and whether losing the NVIDIA HDMI output is
+      acceptable (see "Battery mode" above) — a per-user `gpu.local.lua`
+      choice, not a repo default
 - [ ] a real `compute_backend`, via `install.sh first-run`'s guided
       `power-control` test (see "Resolving compute_backend" above); whether
       it actually reaches D3cold afterward, observed over real idle time

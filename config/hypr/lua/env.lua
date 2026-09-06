@@ -36,4 +36,10 @@ end
 --     hl.env("AQ_DRM_DEVICES", "/dev/dri/hypr-primary:/dev/dri/hypr-secondary")
 -- Without one, Aquamarine auto-selects the boot_vga GPU (the AMD iGPU on
 -- this laptop), which is the desired result anyway.
+--
+-- Battery mode: setting it to "/dev/dri/hypr-primary" ALONE (AMD only) keeps
+-- the NVIDIA card out of the KMS backend entirely, so an idle dGPU holds
+-- D3cold longer — at the cost of any display wired to the NVIDIA GPU (the
+-- HDMI port here). Per-user gpu.local.lua choice, not a default. See
+-- docs/HYBRID-GPU.md "Battery mode".
 require("lua/util").load_optional("gpu.local.lua")

@@ -185,21 +185,59 @@ if [ -n "$nv_pci" ]; then
     _info "nvidia-compute-mode: policy=$policy  backend=$backend"
     [ "$backend" = auto ] && _info "compute_backend is unresolved — first-run on Gentoo should pick one"
 
-    # ECO but active -> WARN + best-effort client hints
+    # ECO policy: grade the runtime state instead of warning on "active" alone.
+    #
+    # RTD3 that is momentarily active while the rest of the picture is healthy
+    # (power/control=auto, d3cold_allowed=1, no clients, and it HAS suspended
+    # at least once this session) is an optimisation trade-off, not a broken
+    # config: a Wayland compositor / GL client can wake the dGPU occasionally
+    # (client-buffer imports, EGL device enumeration). That is INFO. WARN is
+    # reserved for states that actually defeat RTD3.
     cd_n=$(_v nvidia.clients_detected "$nw")
-    if [ "$policy" = eco ] && [ "$rpm" = active ]; then
-        _warn "NVIDIA requested ECO but is currently active"
-        _note "Detected NVIDIA clients (best-effort — this list may be incomplete):"
+    cd_unread=$(_v nvidia.clients_scan_unreadable "$nw")
+    susp_ms=$(_v nvidia.runtime_suspended_time_ms "$nw")
+    case "${susp_ms:-}" in ''|*[!0-9]*) susp_ms=0 ;; esac
+
+    _client_hints() {
+        local line p c
         while IFS= read -r line; do
             case "$line" in nvidia.client.*)
                 p=${line#nvidia.client.}; p=${p%%=*}; c=${line#*=}
                 _note "  - $c (pid $p)" ;;
             esac
         done <<<"$nw"
-        [ "${cd_n:-0}" = 0 ] && _note "  (none detected — a client we cannot see, or the driver itself, is holding it)"
+        if [ "${cd_n:-0}" = 0 ]; then
+            _note "NVIDIA client scan: none among the processes doctor can see."
+        fi
+        if [ "${cd_unread:-0}" != 0 ] && [ "${cd_unread:-0}" != unknown ]; then
+            _note "  (scan is incomplete — ${cd_unread} /proc/<pid>/fd dirs were unreadable;"
+            _note "   run doctor as root, or check 'sudo lsof /dev/nvidia*', for a full list)"
+        fi
         _note "doctor does not terminate anything or change power/control."
-    elif [ "$policy" = eco ] && [ "$rpm" = suspended ]; then
+    }
+
+    if [ "$policy" = eco ] && [ "$rpm" = suspended ]; then
         _ok "ECO policy and the GPU is suspended"
+    elif [ "$policy" = eco ]; then
+        bad=""
+        [ "$pc" = auto ]     || bad="$bad|power/control=$pc (want auto)"
+        [ "$d3a" = 1 ]       || bad="$bad|d3cold_allowed=$d3a (want 1)"
+        [ "${cd_n:-0}" = 0 ] || bad="$bad|NVIDIA clients are holding it"
+        [ "$susp_ms" -gt 0 ] || bad="$bad|RTD3 has not suspended once this session"
+        if [ -n "$bad" ]; then
+            _warn "NVIDIA is active under ECO and RTD3 looks genuinely defeated:"
+            IFS='|' read -ra _reasons <<<"${bad#|}" || true
+            for r in "${_reasons[@]}"; do _note "  - $r"; done
+            _client_hints
+        else
+            _info "NVIDIA runtime PM is 'active' right now, but RTD3 is healthy:"
+            _note "power/control=auto, d3cold_allowed=1, no clients detected,"
+            _note "and it has already spent ${susp_ms}ms suspended this session (RTD3 has engaged)."
+            _note "A compositor / GL client can wake the dGPU occasionally — this is a"
+            _note "battery/latency trade-off, not a broken RTD3 setup. See docs/HYBRID-GPU.md."
+            [ "${cd_unread:-0}" != 0 ] && [ "${cd_unread:-0}" != unknown ] && \
+                _note "(client scan skipped ${cd_unread} unreadable /proc/<pid>/fd dirs — run as root for certainty)"
+        fi
     fi
 
     # deep probe only under the explicit flag

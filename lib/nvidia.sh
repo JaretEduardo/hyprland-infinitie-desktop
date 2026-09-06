@@ -179,6 +179,19 @@ nvidia::clients() {
     return 0
 }
 
+# nvidia::clients_scan_unreadable — how many /proc/<pid>/fd directories the
+# client scan above could NOT read (as a normal user, every fd dir not owned
+# by us, plus non-dumpable processes like the compositor). A value > 0 is
+# proof that nvidia::clients is incomplete: "0 clients detected" then only
+# means "none among the processes we can see". Needs no privilege itself.
+nvidia::clients_scan_unreadable() {
+    command -v find >/dev/null 2>&1 || { printf 'unknown'; return 0; }
+    local total readable
+    total=$(find /proc/[0-9]*/fd -maxdepth 0 -type d 2>/dev/null | wc -l)
+    readable=$(find /proc/[0-9]*/fd -maxdepth 0 -type d -readable 2>/dev/null | wc -l)
+    printf '%s' "$(( total > readable ? total - readable : 0 ))"
+}
+
 # --- aggregate: machine-readable, no-wake -------------------------------
 
 nvidia::probe_nowake() {
@@ -205,10 +218,12 @@ nvidia::probe_nowake() {
     printf 'nvidia.modeset=%s\n'                   "$(nvidia::modeset)"
     printf 'nvidia.modules_loaded=%s\n'            "$(nvidia::modules_loaded | paste -sd, - 2>/dev/null)"
 
-    local clients n
+    local clients n unread
     clients=$(nvidia::clients)
     n=$(printf '%s' "$clients" | grep -c . || true)
+    unread=$(nvidia::clients_scan_unreadable)
     printf 'nvidia.clients_detected=%s\n' "$n"
+    printf 'nvidia.clients_scan_unreadable=%s\n' "$unread"
     printf 'nvidia.clients_note=best-effort; non-root fd scan under-counts\n'
     if [ -n "$clients" ]; then
         while IFS=$'\t' read -r p c; do
@@ -257,6 +272,7 @@ nvidia::json_nowake() {
     printf ',"modeset":"%s"'                   "$(nvidia::modeset)"
     printf ',"modules_loaded":[%s]'            "$mods"
     printf ',"clients_detected":%s'            "$(printf '%s' "$clients" | grep -c . || true)"
+    printf ',"clients_scan_unreadable":%s'     "$(_nv::jnum "$(nvidia::clients_scan_unreadable)")"
     printf ',"clients_note":"best-effort; non-root fd scan under-counts"'
     printf ',"clients":[%s]'                   "$arr"
     printf '}\n'

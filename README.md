@@ -17,6 +17,8 @@ never touches EFI or a bootloader, and never installs Gentoo itself.
 - NetworkManager, PipeWire + WirePlumber
 - session services: `mako` (notifications), UPower (battery), `hyprpolkitagent`
   (polkit prompts) — autostarted, no manual polkit-gnome/-kde agent needed
+- desktop utilities: `fuzzel` launcher (Super+Space), `grim`+`slurp` screenshots
+  (Print / Super+Shift+S — see below), `wl-clipboard`
 - AMD iGPU as the primary/compositor GPU, NVIDIA dGPU on-demand
   (ECO by default, COMPUTE on request — see [HYBRID-GPU.md](docs/HYBRID-GPU.md))
 - `hypridle` + `hyprlock` for idle/lock/DPMS, `logind` for lid/power-key —
@@ -68,10 +70,29 @@ install.sh
 Hyprland session
   |-- Quickshell               the bar (NOT Waybar)
   |-- mako / UPower / hyprpolkitagent   notifications, battery, polkit prompts
+  |-- fuzzel / grim+slurp / wl-clipboard   launcher, screenshots, clipboard
   |-- Infinite Desktop         optional evdev pan/navigate daemon
   |-- hypridle / hyprlock      idle -> dim -> lock -> DPMS -> suspend
   `-- AMD primary + NVIDIA on-demand (ECO / COMPUTE)
 ```
+
+### Keybindings (the ones this repo adds)
+
+| keys | action |
+| --- | --- |
+| `Super + Return` | terminal (`$TERMINAL`, falls back to `foot`) |
+| `Super + Space` | app launcher (`fuzzel`) |
+| `Print` | screenshot of the focused output → `<Pictures>/Screenshots/` |
+| `Super + Print` | same, **and** copy the image to the clipboard |
+| `Super + Shift + S` | select a region → file **and** clipboard (Escape = cancel, silently) |
+| `Super + Q` / `V` / `F` | close / toggle floating / fullscreen |
+| `Super + 1…0` (`+ Shift`) | focus / move-to workspace |
+| `Super + arrows` (`+ Shift` / `Ctrl` / `Alt`) | Infinite Desktop navigate / move / resize / tiled-move |
+| `Super + D` | Infinite Desktop: toggle floating/tiled for the workspace |
+| `XF86Audio*` / `XF86MonBrightness*` | volume / mic / brightness / media |
+
+Screenshots use `bin` script `hypr-screenshot` (`scripts/desktop/hypr-screenshot`,
+linked to `~/.local/bin`), never a shell pipeline inside the Hyprland config.
 
 Every command that writes anything follows the same rule: **detect → explain
 → show the exact change → confirm → apply.** Nothing runs `sudo`,

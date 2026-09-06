@@ -34,6 +34,9 @@ config | config/hyprlock/hyprlock.conf         | hypr/hyprlock.conf
 # ~/.config/mako/config (see config/mako/config); started by lua/autostart.lua.
 config | config/mako/config                    | mako/config
 
+# ---- launcher (fuzzel) -----------------------------------------------
+config | config/fuzzel/fuzzel.ini              | fuzzel/fuzzel.ini
+
 # The Infinite Desktop autostart + keybinds are declared in
 # config/hypr/lua/infinite-desktop.lua (linked above). `install.sh
 # infinite-desktop` installs only the runtime scripts and no longer edits
@@ -55,10 +58,12 @@ config | config/quickshell/modules/SystemStats.qml  | quickshell/modules/SystemS
 config | config/quickshell/modules/NvidiaGpu.qml    | quickshell/modules/NvidiaGpu.qml
 config | config/quickshell/services/Frame.qml       | quickshell/services/Frame.qml
 
-# ---- backend CLIs the Quickshell modules shell out to ---------------------
+# ---- helper CLIs linked onto PATH (~/.local/bin) -------------------------
 # modules/NvidiaGpu.qml calls `nvidia-compute-mode` by name (PATH lookup, with
 # a "command -v" guard so a PATH miss degrades cleanly instead of erroring).
 # Linking it into ~/.local/bin/ — conventionally on PATH — is what makes that
 # resolve; nvidia-offload goes alongside it for the same reason.
-home | bin/nvidia-compute-mode | .local/bin/nvidia-compute-mode
-home | bin/nvidia-offload      | .local/bin/nvidia-offload
+# hypr-screenshot is called by lua/bindings.lua (Print / Super+Shift+S).
+home | bin/nvidia-compute-mode       | .local/bin/nvidia-compute-mode
+home | bin/nvidia-offload            | .local/bin/nvidia-offload
+home | scripts/desktop/hypr-screenshot | .local/bin/hypr-screenshot

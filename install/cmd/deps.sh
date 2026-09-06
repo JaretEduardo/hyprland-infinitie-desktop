@@ -37,6 +37,9 @@ done
 MISSING_REQUIRED=()
 MISSING_RECOMMENDED=()
 MISSING_OPTIONAL=()
+# missing atoms from overlays that need a PER-PACKAGE ~amd64 accept_keywords
+# (guru; hyproverlay is covered by the blanket '*/*::hyproverlay' rule)
+MISSING_KEYWORDS=()
 NOT_VERIFIABLE=0
 
 # _repo_hint <repo>  -> one-line "why / how" for an overlay
@@ -141,6 +144,7 @@ while IFS= read -r g; do
                 recommended) MISSING_RECOMMENDED+=("$atom") ;;
                 *)           MISSING_OPTIONAL+=("$atom") ;;
             esac
+            [ "$repo" = guru ] && MISSING_KEYWORDS+=("$atom")
             printf '  %-37s %-11s %-9s %s%s\n' \
                 "$atom" "$tier" "MISSING" "$repo" "${note:+   # $note}"
         fi
@@ -177,6 +181,14 @@ _emerge_line() {  # <title> <atoms...>
     printf ' %s' "$@"
     printf '\n'
 }
+if [ "${#MISSING_KEYWORDS[@]}" -gt 0 ]; then
+    printf '\n'
+    ui::section "Accept ~amd64 for guru packages (as root, before emerge)"
+    for _a in "${MISSING_KEYWORDS[@]}"; do
+        printf "   echo '%s ~amd64' >> /etc/portage/package.accept_keywords/%s\n" "$_a" "${_a#*/}"
+    done
+fi
+
 _emerge_line "2. Install required"    "${MISSING_REQUIRED[@]}"
 _emerge_line "3. Install recommended" "${MISSING_RECOMMENDED[@]}"
 _emerge_line "4. Optional (pick what you need)" "${MISSING_OPTIONAL[@]}"

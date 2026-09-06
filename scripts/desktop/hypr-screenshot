@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+#
+# hypr-screenshot — Wayland screenshots for Hyprland (grim + slurp + wl-copy).
+#
+#   hypr-screenshot full            focused output  -> PNG file
+#   hypr-screenshot full --copy     focused output  -> PNG file + clipboard
+#   hypr-screenshot region          select a region -> PNG file + clipboard
+#
+# Files land in  <pictures>/Screenshots/Screenshot_<timestamp>.png  where
+# <pictures> is $XDG_PICTURES_DIR, else `xdg-user-dir PICTURES`, else
+# ~/Pictures. The directory is created if it does not exist.
+#
+# Exit codes:
+#   0  a screenshot was taken, OR the region select was cancelled (not an error)
+#   1  a tool is missing or failed, or the destination is not writable
+#   2  bad usage
+#
+# No root. Safe with spaces anywhere in the path. Installed to ~/.local/bin by
+# `install.sh dotfiles` (see install/dotfiles.manifest).
+
+set -u
+
+_die()   { printf 'hypr-screenshot: %s\n' "$*" >&2; exit 1; }
+_usage() { printf 'usage: hypr-screenshot <full|region> [--copy]\n' >&2; exit 2; }
+
+mode=""
+copy=0
+for arg in "$@"; do
+    case "$arg" in
+        full|region)  [ -z "$mode" ] || _usage; mode="$arg" ;;
+        --copy)       copy=1 ;;
+        -h|--help)    _usage ;;
+        *)            _usage ;;
+    esac
+done
+[ -n "$mode" ] || _usage
+
+command -v grim >/dev/null 2>&1 || _die "grim not found — install gui-apps/grim"
+
+# ---- destination ---------------------------------------------------------
+pics="${XDG_PICTURES_DIR:-}"
+if [ -z "$pics" ] && command -v xdg-user-dir >/dev/null 2>&1; then
+    pics="$(xdg-user-dir PICTURES 2>/dev/null || true)"
+fi
+[ -n "$pics" ] || pics="$HOME/Pictures"
+
+dir="$pics/Screenshots"
+mkdir -p -- "$dir" || _die "cannot create $dir"
+[ -w "$dir" ] || _die "not writable: $dir"
+
+file="$dir/Screenshot_$(date +%Y-%m-%d_%H-%M-%S).png"
+
+# ---- capture ----------------------------------------------------------
+case "$mode" in
+    region)
+        command -v slurp >/dev/null 2>&1 || _die "slurp not found — install gui-apps/slurp"
+        # slurp prints a geometry on stdout; a non-zero exit or empty output
+        # means the user pressed Escape — a cancel, not a failure.
+        if ! geom="$(slurp 2>/dev/null)" || [ -z "$geom" ]; then
+            exit 0
+        fi
+        grim -g "$geom" "$file" || _die "grim failed"
+        copy=1
+        ;;
+    full)
+        out=""
+        if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+            out="$(hyprctl monitors -j 2>/dev/null \
+                   | jq -r 'map(select(.focused))[0].name // empty' 2>/dev/null || true)"
+        fi
+        if [ -n "$out" ]; then
+            grim -o "$out" "$file" || _die "grim failed"
+        else
+            grim "$file" || _die "grim failed"
+        fi
+        ;;
+esac
+
+[ -s "$file" ] || _die "screenshot came out empty: $file"
+
+# ---- clipboard -------------------------------------------------------
+if [ "$copy" -eq 1 ]; then
+    if command -v wl-copy >/dev/null 2>&1; then
+        wl-copy --type image/png < "$file" || _die "wl-copy failed"
+    else
+        printf 'hypr-screenshot: wl-copy not found — saved to file only\n' >&2
+    fi
+fi
+
+# ---- feedback (best-effort; needs x11-libs/libnotify + a running mako) ---
+if command -v notify-send >/dev/null 2>&1; then
+    msg="Saved ${file##*/}"
+    [ "$copy" -eq 1 ] && msg="$msg  ·  copied to clipboard"
+    notify-send -a hypr-screenshot -i "$file" "Screenshot" "$msg" 2>/dev/null || true
+fi
+
+printf '%s\n' "$file"

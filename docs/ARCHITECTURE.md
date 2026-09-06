@@ -36,10 +36,13 @@ config/
   hypridle/  hyprlock/         idle ladder + lock screen config (see POWER.md)
   logind/                      logind.conf.d drop-in for lid/power-key/idle-action
   mako/                        notification daemon config (linked by dotfiles)
+  fuzzel/                      app-launcher config (linked by dotfiles)
   polkit/actions/              polkit policy for the helper above; also NOT installed
   quickshell/                  modular Quickshell bar
 scripts/
   infinite-desktop/            the Infinite Desktop component (evdev daemon + IPC)
+  desktop/                     small desktop helpers + tests: hypr-screenshot
+                                 (grim/slurp/wl-copy; linked to ~/.local/bin by dotfiles)
 docs/                          per-topic documentation
 ```
 
@@ -133,7 +136,7 @@ pcall-free.
 | `monitors.lua` | generic `output = ""` fallback rule (no `eDP-1`, no resolution); loads `monitors.local.lua` |
 | `input.lua` | keyboard + touchpad base, 3-finger workspace swipe |
 | `appearance.lua` | minimal gaps / borders / layout; Quickshell owns the visuals later |
-| `bindings.lua` | basic desktop keybinds only; `Super+Return` runs `$TERMINAL`, falling back to `foot` (a `required` package — see `install/packages.gentoo`) |
+| `bindings.lua` | basic desktop keybinds; `Super+Return` → `$TERMINAL` (falls back to `foot`), `Super+Space` → `fuzzel`, `Print` / `Super+Print` / `Super+Shift+S` → `hypr-screenshot` (see README "Keybindings") |
 | `laptop.lua` | XF86 volume/mic/brightness/media keybinds (`wpctl`/`brightnessctl`/`playerctl`) |
 | `autostart.lua` | environment import; polkit agent (`hyprpolkitagent.service`, user unit); `mako` (notifications); Quickshell; `hypridle` — each guarded so a reload never double-spawns |
 | `infinite-desktop.lua` | Infinite Desktop autostart + keybinds; the only seam to that component. Loaded last; `hl.unbind`s + rebinds `SUPER + arrows`. |
@@ -192,6 +195,30 @@ Three user-session services the desktop needs, all `required` in
 | notifications | `gui-apps/mako` | `mako` as a guarded bare process; also D-Bus-activatable | owns `org.freedesktop.Notifications`; config `config/mako/config` linked by `dotfiles` |
 | battery / power | `sys-power/upower` | D-Bus system activation (on first query) | backs Quickshell `modules/Battery.qml`; `upower.service` idle until queried is normal |
 | polkit agent | `sys-auth/hyprpolkitagent` | `systemctl --user start hyprpolkitagent.service` | renders `pkexec` prompts. Once installed, a manual `polkit-gnome` / `polkit-kde` agent is **no longer needed** and can be removed — this repo never depends on one. After first install run `systemctl --user daemon-reload` (or re-login) so the unit is found. |
+
+## Desktop utilities
+
+The `desktop-utils` group in `install/packages.gentoo` (all `required`):
+`gui-apps/fuzzel` (launcher, `guru` overlay — needs a per-package `~amd64`
+keyword, which `deps` prints), `gui-apps/wl-clipboard`, `gui-apps/grim`,
+`gui-apps/slurp`. `x11-libs/libnotify` (`recommended`) gives `notify-send`.
+
+- **Launcher** — `fuzzel`, bound to `Super+Space` in `lua/bindings.lua`.
+  Config `config/fuzzel/fuzzel.ini`, linked by `dotfiles`.
+- **Screenshots** — `scripts/desktop/hypr-screenshot` (`full` / `region`, with
+  `--copy`), linked to `~/.local/bin` by `dotfiles` and called from
+  `lua/bindings.lua` (`Print` / `Super+Print` / `Super+Shift+S`). It writes
+  `<pictures>/Screenshots/Screenshot_<timestamp>.png` — `<pictures>` is
+  `$XDG_PICTURES_DIR`, else `xdg-user-dir PICTURES`, else `~/Pictures`, dir
+  created if missing. `region` and `--copy` also `wl-copy` the PNG. A cancelled
+  region select exits `0` and leaves nothing behind. `bin/`-style helper, not a
+  pipeline inside the Hyprland config. Tests: `scripts/desktop/test_hypr_screenshot.sh`
+  (grim/slurp/wl-copy mocked).
+- **Clipboard** — `wl-clipboard` (`wl-copy` / `wl-paste`); the region
+  screenshot depends on `wl-copy`.
+
+`doctor`'s *Desktop utilities* section checks each binary, the package, and the
+`hypr-screenshot` symlink — read-only, it never takes a screenshot.
 
 ## Infinite Desktop
 

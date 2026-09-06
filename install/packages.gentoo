@@ -40,8 +40,6 @@ hyprland | sys-auth/hyprpolkitagent             | hyproverlay | required    | po
 hyprland | gui-apps/foot                        | ::gentoo    | required    | terminal: lua/bindings.lua's Super+Return runs $TERMINAL, falling back to `foot`. Set $TERMINAL + install that instead if you prefer another.
 hyprland | gui-apps/hyprpaper                   | hyproverlay | optional    | wallpaper daemon
 hyprland | gui-apps/hyprpicker                  | hyproverlay | optional    | colour picker
-hyprland | gui-apps/grim                        | ::gentoo    | optional    | screenshots
-hyprland | gui-apps/slurp                       | ::gentoo    | optional    | region select for grim
 
 # ---- Quickshell (this project uses Quickshell, not Waybar) ---------------
 quickshell | gui-apps/quickshell | guru | required | the bar / shell
@@ -51,7 +49,18 @@ quickshell | gui-apps/quickshell | guru | required | the bar / shell
 # (session, activatable) — without it, every app that calls notify-send / the
 # Notifications API fails silently. Config: config/mako/config (linked by
 # `install.sh dotfiles`); autostarted by config/hypr/lua/autostart.lua.
-notifications | gui-apps/mako | ::gentoo | required | notification daemon (org.freedesktop.Notifications)
+notifications | gui-apps/mako     | ::gentoo | required    | notification daemon (org.freedesktop.Notifications)
+notifications | x11-libs/libnotify | ::gentoo | recommended | provides notify-send — the CLI that lets scripts (e.g. hypr-screenshot) actually deliver a notification to mako
+
+# ---- desktop utilities (launcher, clipboard, screenshots) ---------------
+# The everyday tools that make a clean install usable. fuzzel is the launcher
+# (Super+Space); wl-clipboard is the base Wayland clipboard (wl-copy/wl-paste),
+# also used by the region screenshot; grim+slurp back bin/hypr-screenshot
+# (Print / Super+Shift+S / Super+Print). See docs/INSTALL.md and README.
+desktop-utils | gui-apps/fuzzel       | guru     | required | app launcher (Super+Space). Config: config/fuzzel/fuzzel.ini. guru overlay: add `gui-apps/fuzzel ~amd64` to /etc/portage/package.accept_keywords/
+desktop-utils | gui-apps/wl-clipboard | ::gentoo | required | wl-copy / wl-paste — Wayland clipboard; the region screenshot copies the image with wl-copy
+desktop-utils | gui-apps/grim         | ::gentoo | required | screenshot capture (bin/hypr-screenshot)
+desktop-utils | gui-apps/slurp        | ::gentoo | required | region selector for grim (Super+Shift+S)
 
 # ---- audio (PipeWire) ---------------------------------------------------
 audio | media-video/pipewire    | ::gentoo | required    | enable USE for pipewire-pulse / alsa-plugin

@@ -485,6 +485,39 @@ else
     _info "  polkit agent runtime state not checked (no session here)"
 fi
 
+# ---- desktop utilities: launcher / screenshots / clipboard -----------
+# Read-only. These are all `required` in the catalogue, so a missing one also
+# shows up under "Required packages"; this section adds the binary + the
+# hypr-screenshot symlink. It never takes a screenshot.
+_sec "Desktop utilities (launcher, screenshots, clipboard)"
+for _pair in \
+    "fuzzel|gui-apps/fuzzel|app launcher (Super+Space)" \
+    "grim|gui-apps/grim|screenshot capture" \
+    "slurp|gui-apps/slurp|region select (Super+Shift+S)" \
+    "wl-copy|gui-apps/wl-clipboard|Wayland clipboard (wl-copy / wl-paste)"; do
+    _b=${_pair%%|*}; _rest=${_pair#*|}; _atom=${_rest%%|*}; _desc=${_rest#*|}
+    if _have "$_b"; then _ok "$_b present ($_desc)"
+    elif [ "$IS_GENTOO" = 1 ] && ! portage::pkg_installed "$_atom"; then
+        _warn "$_b missing — $_atom not installed (install.sh deps) [$_desc]"
+    else
+        _info "$_b not on PATH ($_atom; not verifiable off Gentoo)"
+    fi
+done
+if _have wl-copy && ! _have wl-paste; then
+    _warn "wl-copy is present but wl-paste is not — gui-apps/wl-clipboard looks incomplete"
+fi
+_ss_repo="$REPO_DIR/scripts/desktop/hypr-screenshot"
+_ss_link="$HOME/.local/bin/hypr-screenshot"
+if [ -L "$_ss_link" ] && [ "$(readlink -f "$_ss_link" 2>/dev/null)" = "$(readlink -f "$_ss_repo" 2>/dev/null)" ]; then
+    _ok "hypr-screenshot linked: $_ss_link -> repo"
+elif [ -e "$_ss_link" ]; then
+    _warn "$_ss_link exists but does not point at the repo copy — run: install.sh dotfiles --apply"
+elif _have hypr-screenshot; then
+    _info "hypr-screenshot on PATH but not from ~/.local/bin (a manual copy?)"
+else
+    _info "hypr-screenshot not linked yet — run: install.sh dotfiles --apply"
+fi
+
 # ---- Infinite Desktop / evdev -----------------------------
 _sec "Infinite Desktop / evdev"
 if _have python3 && python3 -c 'import evdev' 2>/dev/null; then _ok "python 'evdev' module importable"

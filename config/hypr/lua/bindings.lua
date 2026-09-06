@@ -23,6 +23,17 @@ hl.bind(mod .. " + F",      hl.dsp.window.fullscreen({ action = "toggle" }))
 hl.bind(mod .. " + P",      hl.dsp.window.pseudo())
 hl.bind(mod .. " + T",      hl.dsp.layout("togglesplit"))     -- dwindle
 
+-- Launcher (config/fuzzel/fuzzel.ini). SUPER + D is Infinite Desktop's
+-- floating/tiled toggle, so the launcher is on SUPER + Space.
+hl.bind(mod .. " + Space", hl.dsp.exec_cmd("fuzzel"))
+
+-- Screenshots -> ~/.local/bin/hypr-screenshot (scripts/desktop/hypr-screenshot,
+-- linked by dotfiles). Files go to <Pictures>/Screenshots/, region + Super+Print
+-- also copy the image to the clipboard. Cancelling the region select is silent.
+hl.bind("Print",                hl.dsp.exec_cmd("hypr-screenshot full"))
+hl.bind(mod .. " + Print",      hl.dsp.exec_cmd("hypr-screenshot full --copy"))
+hl.bind(mod .. " + SHIFT + S",  hl.dsp.exec_cmd("hypr-screenshot region"))
+
 -- Move focus
 hl.bind(mod .. " + left",  hl.dsp.focus({ direction = "left" }))
 hl.bind(mod .. " + right", hl.dsp.focus({ direction = "right" }))

@@ -87,11 +87,26 @@ automatically and never tracked by git — see `lua/util.lua`). Do not add
 speculative binds for keysyms you have not actually seen `wev` report on this
 hardware.
 
+## Session services — audio + logind (`install.sh first-run`, section 5)
+
+The PipeWire user units are socket-activated but **not enabled by anything in
+this repo**. `first-run --apply` offers to run, once:
+
+```
+systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
+```
+
+`doctor`'s *Audio session* section prints the same command if the units are
+`disabled`. The section also reminds you to run `install.sh power --apply` (root)
+for the logind drop-in — without it a single Power-key press powers the machine
+off. See [SESSION.md](SESSION.md).
+
 ## Volume / mic mute reflected in the bar
 
 `modules/Audio.qml` reads PipeWire's own state directly
 (`Quickshell.Services.Pipewire`), so a volume or mute change from the
-keyboard shows up in the bar with no extra step to verify.
+keyboard shows up in the bar with no extra step to verify (once PipeWire is
+running — see above).
 
 ## Lid, lock, suspend (docs/POWER.md)
 

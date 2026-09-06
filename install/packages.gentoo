@@ -31,10 +31,18 @@ base | app-eselect/eselect-repository | ::gentoo    | required    | needed to en
 base | app-portage/cpuid2cpuflags     | ::gentoo    | recommended | derive CPU_FLAGS_X86 for make.conf
 
 # ---- Hyprland ------------------------------------------------------------
-hyprland | gui-wm/hyprland                      | hyproverlay | required    |
-hyprland | gui-libs/xdg-desktop-portal-hyprland | hyproverlay | required    | screenshare / pickers under Hyprland
-hyprland | sys-apps/xdg-desktop-portal          | ::gentoo    | required    | portal frontend
-hyprland | sys-apps/xdg-desktop-portal-gtk      | ::gentoo    | recommended | GTK file-chooser backend
+# gui-wm/hyprland MUST be built with USE="X systemd dbus-session":
+#   X            -> Xwayland / X11 app support (pulls x11-base/xwayland)
+#   systemd      -> systemd user-session integration (graphical-session.target)
+#   dbus-session -> D-Bus session bus (portals, mako, hyprpolkitagent)
+# All three are default USE on the default/linux/amd64/23.0/desktop/systemd
+# profile this repo targets, so a stock desktop/systemd install needs no
+# package.use entry. `doctor` verifies the built flags. See docs/SESSION.md.
+hyprland | gui-wm/hyprland                      | hyproverlay | required    | compositor. Needs USE="X systemd dbus-session" (see comment above).
+hyprland | x11-base/xwayland                    | ::gentoo    | required    | X11 app support; pulled by gui-wm/hyprland[X]. Listed so deps/doctor verify it survived a rebuild.
+hyprland | gui-libs/xdg-desktop-portal-hyprland | hyproverlay | required    | portal backend: screencast / screenshot / global-shortcuts (wlroots screencopy + PipeWire)
+hyprland | sys-apps/xdg-desktop-portal          | ::gentoo    | required    | portal frontend (org.freedesktop.portal.Desktop)
+hyprland | sys-apps/xdg-desktop-portal-gtk      | ::gentoo    | required    | portal backend for the file chooser + Settings — needed by Chromium/Electron/Flatpak "Open File" dialogs
 hyprland | sys-auth/polkit                      | ::gentoo    | required    | privilege prompts (the polkit daemon)
 hyprland | sys-auth/hyprpolkitagent             | hyproverlay | required    | polkit *agent* that renders the prompts; lua/autostart.lua starts its systemd user unit hyprpolkitagent.service. Replaces a manual polkit-gnome/-kde agent.
 hyprland | gui-apps/foot                        | ::gentoo    | required    | terminal: lua/bindings.lua's Super+Return runs $TERMINAL, falling back to `foot`. Set $TERMINAL + install that instead if you prefer another.
@@ -62,9 +70,23 @@ desktop-utils | gui-apps/wl-clipboard | ::gentoo | required | wl-copy / wl-paste
 desktop-utils | gui-apps/grim         | ::gentoo | required | screenshot capture (bin/hypr-screenshot)
 desktop-utils | gui-apps/slurp        | ::gentoo | required | region selector for grim (Super+Shift+S)
 
+# ---- fonts (avoid tofu on a minimal install) ---------------------------
+# No repo config names a font family — mako/fuzzel/foot/hyprlock/Quickshell all
+# use the fontconfig aliases `sans-serif` / `monospace`. Something must back
+# those aliases. dejavu is the small, stable, zero-keyword baseline; noto adds
+# broad Unicode + a colour-emoji font. `doctor` checks `fc-match`.
+fonts | media-fonts/dejavu     | ::gentoo | required    | sans/serif/mono baseline for the `sans-serif` / `monospace` fontconfig aliases
+fonts | media-fonts/noto       | ::gentoo | recommended | broad Unicode coverage (Noto Sans/Serif/Mono). ~amd64: add `media-fonts/noto ~amd64` to /etc/portage/package.accept_keywords/
+fonts | media-fonts/noto-emoji | ::gentoo | recommended | colour emoji — no repo config uses emoji glyphs, but notifications / web content do. ~amd64.
+
 # ---- audio (PipeWire) ---------------------------------------------------
-audio | media-video/pipewire    | ::gentoo | required    | enable USE for pipewire-pulse / alsa-plugin
-audio | media-video/wireplumber | ::gentoo | required    | PipeWire session manager
+# Install AND enable the user units — they are socket-activated, not started
+# by anything in this repo:  systemctl --user enable --now pipewire.socket
+#   pipewire-pulse.socket wireplumber.service   (no root; see docs/SESSION.md).
+# `install.sh first-run --apply` offers to run that; `doctor` checks it.
+audio | media-video/pipewire    | ::gentoo | required    | audio server. Enable USE pipewire-pulse (PulseAudio API — Firefox/Discord/…) + alsa-plugin.
+audio | media-video/wireplumber | ::gentoo | required    | PipeWire session/policy manager (wireplumber.service)
+audio | sys-auth/rtkit          | ::gentoo | recommended | realtime scheduling for PipeWire — smoother audio under load (pipewire uses it over D-Bus if present)
 
 # ---- network ----------------------------------------------------------
 network | net-misc/networkmanager     | ::gentoo | required    |

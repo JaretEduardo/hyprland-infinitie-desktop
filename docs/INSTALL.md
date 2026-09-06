@@ -58,12 +58,26 @@ detected fact, not a decision to write. See [PROFILES.md](PROFILES.md).
 ```
 
 Reads `install/packages.gentoo` and reports what is needed, grouped into base /
-Hyprland / Quickshell / notifications / desktop-utils / audio / network / power /
-NVIDIA / kernel-dev. On Gentoo it checks overlay status and each atom, then
-prints the exact commands — `eselect repository enable` / `emaint sync`, a
-`package.accept_keywords` line per missing `guru` package, and `emerge --ask` —
-without ever running them. `--install` is refused (not implemented). Off Gentoo it prints the
+Hyprland / Quickshell / notifications / desktop-utils / fonts / audio / network /
+power / NVIDIA / kernel-dev. On Gentoo it checks overlay status and each atom,
+then prints the exact commands — `eselect repository enable` / `emaint sync`, a
+`package.accept_keywords` line per package that needs `~amd64` (every `guru`
+atom, plus any whose note says so), and `emerge --ask` — without ever running
+them. `--install` is refused (not implemented). Off Gentoo it prints the
 plan and says the installed state is not verifiable.
+
+`gui-wm/hyprland` must be built `USE="X systemd dbus-session"` — all profile
+defaults on `default/linux/amd64/23.0/desktop/systemd`, so a stock desktop
+install needs no `package.use`. `doctor`'s *Xwayland* section verifies the
+built flags. See [SESSION.md](SESSION.md).
+
+Two post-install steps `install.sh` cannot do for you — both flagged by
+`doctor` and offered by `first-run --apply`:
+
+```bash
+systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service   # audio
+./install.sh power --apply        # the logind drop-in (prints the sudo command)
+```
 
 ### `gpu` — hybrid AMD/NVIDIA + RTD3
 

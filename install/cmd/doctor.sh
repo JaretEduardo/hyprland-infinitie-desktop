@@ -31,6 +31,10 @@ else REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"; fi
 . "$REPO_DIR/lib/portage.sh"
 # shellcheck source=lib/nvidia.sh
 . "$REPO_DIR/lib/nvidia.sh"
+# shellcheck source=lib/session.sh
+. "$REPO_DIR/lib/session.sh"
+# shellcheck source=lib/symlink.sh
+. "$REPO_DIR/lib/symlink.sh"
 
 VERBOSE="${INSTALL_VERBOSE:-${LOG_VERBOSE:-}}"
 NVIDIA_DEEP=0
@@ -287,7 +291,7 @@ if [ -n "$nv_pci" ]; then
     pmrule=$(grep -rlsE 'ATTR\{power/control\}' /usr/lib/udev/rules.d /lib/udev/rules.d /etc/udev/rules.d 2>/dev/null | grep -i nvidia | head -n1 || true)
     [ -n "$pmrule" ] && _ok "RTD3 power/control udev rule: $pmrule" \
                      || _warn "no RTD3 power/control udev rule found (driver may still handle it)"
-    dpm=$(grep -oE 'DynamicPowerManagement: [0-9]+' /proc/driver/nvidia/params 2>/dev/null | awk '{print $2}')
+    dpm=$({ grep -oE 'DynamicPowerManagement: [0-9]+' /proc/driver/nvidia/params 2>/dev/null || true; } | awk '{print $2}')
     if [ -n "$dpm" ]; then
         [ "$dpm" = 0 ] && _warn "DynamicPowerManagement = 0 (RTD3 off) — add NVreg_DynamicPowerManagement=0x02" \
                        || _ok "DynamicPowerManagement = $dpm (RTD3 active)"
@@ -349,20 +353,128 @@ if _have systemctl && systemctl is-active --quiet NetworkManager 2>/dev/null; th
 elif _have nmcli; then _warn "nmcli present but NetworkManager.service not active"
 else _info "NetworkManager not detected (install.sh deps: net-misc/networkmanager)"; fi
 
-_sec "PipeWire / WirePlumber"
-for b in pipewire wireplumber; do
-    if _have "$b"; then
-        if _have systemctl && systemctl --user is-active --quiet "$b" 2>/dev/null; then _ok "$b present and running (user)"
-        else _info "$b present (user service state unknown from here)"; fi
-    else _warn "$b not installed"; fi
+# ---- session environment ------------------------------------------
+# Values apps + xdg-desktop-portal read to know they are in a Hyprland Wayland
+# session. lua/env.lua sets all three; Hyprland itself sets the first two when
+# launched bare from a TTY. A missing one is a portal / theming problem.
+_sec "Session environment"
+_have_session=0
+[ -n "${WAYLAND_DISPLAY:-}" ] && _have_session=1
+_envset() { grep -qE "hl\.env\(\"$1\"" "$REPO_DIR/config/hypr/lua/env.lua" 2>/dev/null; }
+for _e in XDG_CURRENT_DESKTOP:Hyprland XDG_SESSION_DESKTOP:Hyprland XDG_SESSION_TYPE:wayland; do
+    _k=${_e%%:*}; _want=${_e#*:}; _cur=$(printenv "$_k" 2>/dev/null || true)
+    if _envset "$_k"; then _repo="set by lua/env.lua"; else _repo=""; fi
+    if [ "$_have_session" = 0 ]; then
+        [ -n "$_repo" ] && _info "$_k: $_repo (not in this non-session shell)" \
+                        || _warn "$_k: lua/env.lua does not set it — add hl.env(\"$_k\", \"$_want\")"
+    elif [ "$_cur" = "$_want" ]; then _ok "$_k=$_cur"
+    elif [ -z "$_cur" ]; then
+        [ -n "$_repo" ] && _info "$_k unset now but $_repo — takes effect on the next Hyprland reload / re-login" \
+                        || _warn "$_k is unset and lua/env.lua does not set it — add hl.env(\"$_k\", \"$_want\")"
+    else _info "$_k=$_cur (repo expects '$_want'; a different launcher set it — usually fine)"; fi
 done
+[ -n "${WAYLAND_DISPLAY:-}" ] && _ok "WAYLAND_DISPLAY=$WAYLAND_DISPLAY" \
+                             || _info "WAYLAND_DISPLAY unset — not inside a Wayland session here"
+if session::user_bus; then _ok "user D-Bus session bus reachable"
+else _info "no user session bus here — the checks below that need one are skipped, not failed"; fi
+
+# ---- Xwayland (X11 app support) ----------------------------------
+_sec "Xwayland (X11 apps)"
+case "$(session::xwayland)" in
+    builtin)
+        _ok "Xwayland present and gui-wm/hyprland was built with USE=X"
+        session::proc_running Xwayland && _info "an Xwayland server is running now" \
+                                        || _info "no Xwayland server running yet (Hyprland starts it on the first X11 client)" ;;
+    binary-only)
+        _warn "Xwayland is installed but gui-wm/hyprland is NOT built with USE=X — X11 apps will not work; rebuild: emerge --newuse gui-wm/hyprland" ;;
+    none)
+        if [ "$IS_GENTOO" = 1 ] && ! portage::pkg_installed x11-base/xwayland; then
+            _warn "x11-base/xwayland not installed and gui-wm/hyprland[X] off — no X11 app support (install.sh deps)"
+        else
+            _info "Xwayland not on PATH (not verifiable off Gentoo)"
+        fi ;;
+    *) _info "cannot determine Xwayland support here (verify on Gentoo: Xwayland binary + gui-wm/hyprland[X])" ;;
+esac
+if session::pkg_use_has gui-wm/hyprland systemd; then :; else
+    case "$(session::pkg_use_has gui-wm/hyprland systemd; echo $?)" in
+        1) _warn "gui-wm/hyprland is not built with USE=systemd — the user-session integration this repo assumes is weaker; rebuild with USE=systemd" ;;
+    esac
+fi
+
+# ---- desktop portals / screen sharing ---------------------------
+# Hyprland: xdg-desktop-portal (frontend) + xdg-desktop-portal-hyprland
+# (ScreenCast/Screenshot/GlobalShortcuts, via wlroots screencopy + PipeWire) +
+# a file-chooser backend (xdg-desktop-portal-gtk). Screen sharing in
+# Firefox/Chromium/Discord/OBS/Zoom goes through this. Read-only: no capture.
+_sec "Desktop portals / screen sharing"
+for _pp in \
+    "sys-apps/xdg-desktop-portal|xdg-desktop-portal|portal frontend" \
+    "gui-libs/xdg-desktop-portal-hyprland|.|Hyprland backend (screencast/screenshot)" \
+    "sys-apps/xdg-desktop-portal-gtk|.|GTK backend (file chooser, settings)"; do
+    _atom=${_pp%%|*}; _r=${_pp#*|}; _pdesc=${_r#*|}
+    if [ "$IS_GENTOO" = 1 ]; then
+        portage::pkg_installed "$_atom" && _ok "$_atom installed ($_pdesc)" \
+            || _warn "$_atom NOT installed (install.sh deps) — $_pdesc"
+    else
+        _info "$_atom — not verifiable off Gentoo ($_pdesc)"
+    fi
+done
+if session::user_bus; then
+    if session::dbus_owned --user org.freedesktop.portal.Desktop; then
+        _ok "org.freedesktop.portal.Desktop is being served (xdg-desktop-portal running)"
+    elif session::dbus_known --user org.freedesktop.portal.Desktop; then
+        _info "portal frontend not running yet — D-Bus-activatable, starts on first use"
+    else
+        _warn "org.freedesktop.portal.Desktop has no owner and is not activatable"
+    fi
+    session::dbus_known --user org.freedesktop.impl.portal.desktop.hyprland \
+        && _ok "the Hyprland portal backend is registered (screencast/screenshot available)" \
+        || _warn "the Hyprland portal backend is not registered — start xdg-desktop-portal-hyprland.service"
+    _pc="${XDG_CONFIG_HOME:-$HOME/.config}/xdg-desktop-portal/hyprland-portals.conf"
+    if [ -L "$_pc" ] || [ -f "$_pc" ]; then _ok "portal backend preference pinned: $_pc"
+    elif [ -f /usr/share/xdg-desktop-portal/hyprland-portals.conf ]; then _info "backend preference from the distro default (/usr/share/...); the repo pins its own via install.sh dotfiles --apply"
+    else _info "no hyprland-portals.conf — xdg-desktop-portal chooses a backend by its own heuristics; run install.sh dotfiles --apply to pin it"; fi
+else
+    _info "portal runtime state not checked (no session bus here)"
+fi
+
+# ---- audio session (PipeWire / WirePlumber) --------------------
+# PipeWire user units are socket-activated: they must be ENABLED for the
+# session to have audio. `disabled` is a real problem, not a transient state.
+_sec "Audio session (PipeWire / WirePlumber)"
+_pw_missing=0
+for _pb in pipewire wireplumber wpctl; do
+    _have "$_pb" || { _pw_missing=1; _warn "$_pb not installed"; }
+done
+if [ "$_pw_missing" = 0 ]; then
+    if session::user_bus; then
+        _pw_sock=$(session::unit_enabled --user pipewire.socket)
+        _wp_svc=$(session::unit_enabled --user wireplumber.service)
+        if [ "$_pw_sock" = enabled ] && [ "$_wp_svc" = enabled ]; then
+            _ok "pipewire.socket + wireplumber.service are enabled for the user session"
+        else
+            _warn "PipeWire user units are not enabled (pipewire.socket=$_pw_sock, wireplumber.service=$_wp_svc) — no audio. Fix:"
+            _note "systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service"
+        fi
+        # runtime, read-only (timeout-guarded: a wedged socket must not hang doctor)
+        if session::have wpctl && timeout 5 wpctl status >/dev/null 2>&1; then
+            _ok "wpctl can reach PipeWire (audio server is up)"
+        elif session::have pactl && timeout 5 pactl info >/dev/null 2>&1; then
+            _ok "pactl can reach the audio server (PipeWire-Pulse)"
+        else
+            _info "no running PipeWire yet (it socket-activates on the first client once enabled)"
+        fi
+    else
+        _info "PipeWire/WirePlumber installed; session state not checked (no user bus here)"
+    fi
+fi
 
 _sec "Hyprland / Quickshell tools"
 for b in hyprctl hypridle hyprlock brightnessctl qs; do
     _have "$b" && _ok "$b: $(command -v "$b")" || _info "$b not installed yet"
 done
 if _have hyprctl; then
-    hv=$(hyprctl version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 | tr -d v)
+    hv=$(hyprctl version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 | tr -d v || true)
     if [ -n "$hv" ]; then
         maj=${hv%%.*}; rest=${hv#*.}; minr=${rest%%.*}
         if [ "$maj" -eq 0 ] && [ "$minr" -lt 55 ] 2>/dev/null; then
@@ -485,6 +597,116 @@ else
     _info "  polkit agent runtime state not checked (no session here)"
 fi
 
+# ---- idle / lock (hypridle + hyprlock) ---------------------------
+# Never locks the screen from here. hypridle is started (guarded) by
+# lua/autostart.lua; hyprlock is only ever launched by hypridle's lock_cmd.
+_sec "Idle / lock (hypridle + hyprlock)"
+_have hypridle && _ok "hypridle installed" || _warn "hypridle not installed (gui-apps/hypridle)"
+_have hyprlock && _ok "hyprlock installed" || _warn "hyprlock not installed (gui-apps/hyprlock)"
+if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    if session::proc_running hypridle; then
+        _ok "hypridle is running in this session"
+        session::user_bus && session::dbus_owned --user org.freedesktop.ScreenSaver \
+            && _ok "org.freedesktop.ScreenSaver is served (idle-inhibit works)" || true
+    else
+        _warn "hypridle is NOT running — no idle dim/lock/DPMS/suspend ladder (lua/autostart.lua starts it on hyprland.start)"
+    fi
+else
+    _info "not inside a Hyprland session here — hypridle runtime state not checked"
+fi
+for _hc in hypridle/hypridle.conf hyprlock/hyprlock.conf; do
+    _hl="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/${_hc#*/}"
+    _ht="$REPO_DIR/config/$_hc"
+    case "$(symlink::state "$_hl" "$_ht")" in
+        correct)    _ok "${_hc#*/} linked to the repo" ;;
+        absent)     _warn "${_hc#*/} not linked — run: install.sh dotfiles --apply" ;;
+        broken)     _warn "${_hc#*/} is a broken symlink — run: install.sh dotfiles --apply" ;;
+        real-file)  _info "${_hc#*/} is a real file (local edit, not the repo copy)" ;;
+        wrong-link) _warn "${_hc#*/} points somewhere other than the repo" ;;
+    esac
+done
+
+# ---- logind drop-in (lid / power-key / idle-action) ------------
+# install.sh power writes config/logind/50-hyprland-infinite-desktop.conf.
+# Read-only: reports the file + compares content + reads the LIVE values logind
+# publishes over D-Bus. Never restarts systemd-logind.
+_sec "logind drop-in (lid / power key / idle)"
+_ld=/etc/systemd/logind.conf.d/50-hyprland-infinite-desktop.conf
+_ldt="$REPO_DIR/config/logind/50-hyprland-infinite-desktop.conf"
+if [ -f "$_ld" ]; then
+    head -n1 "$_ld" 2>/dev/null | grep -q 'managed by hyprland-infinitie-desktop' \
+        && _ok "drop-in installed (managed): $_ld" \
+        || _warn "$_ld exists but was not written by this installer"
+    _body() { { grep -vE '^[[:space:]]*(#|$|\[)' "$1" 2>/dev/null | sort; } || true; }
+    [ "$(_body "$_ld")" = "$(_body "$_ldt")" ] \
+        && _ok "drop-in content matches the repo" \
+        || _warn "drop-in content differs from the repo — re-run install.sh power --apply"
+else
+    _warn "logind drop-in NOT installed — a single Power-key press will power the machine OFF instead of locking. Fix: install.sh power --apply"
+fi
+if _have busctl; then
+    _lv() {
+        timeout 5 busctl --system get-property org.freedesktop.login1 /org/freedesktop/login1 \
+            org.freedesktop.login1.Manager "$1" 2>/dev/null | awk -F'"' 'NR==1{print $2}' || true
+    }
+    _pk=$(_lv HandlePowerKey || true)
+    _lid=$(_lv HandleLidSwitch || true)
+    _ia=$(_lv IdleAction || true)
+    if [ -n "$_pk" ]; then
+        if [ "$_pk" = lock ]; then _ok "live: HandlePowerKey=lock"
+        else _warn "live: HandlePowerKey=$_pk (repo wants 'lock' — install.sh power --apply)"; fi
+        if [ "$_ia" = ignore ]; then _ok "live: IdleAction=ignore (hypridle owns idle)"
+        else _warn "live: IdleAction=$_ia (repo wants 'ignore'; hypridle owns the ladder)"; fi
+        [ -n "$_lid" ] && _info "live: HandleLidSwitch=$_lid"
+    else
+        _info "logind live values not readable here"
+    fi
+fi
+
+# ---- fonts (avoid tofu on a minimal install) -------------------
+_sec "Fonts"
+if _have fc-match; then
+    _fs=$(session::fc_family sans-serif); _fm=$(session::fc_family monospace); _fe=$(session::fc_family emoji)
+    [ -n "$_fs" ] && _ok "sans-serif resolves to: $_fs" || _warn "fontconfig has no sans-serif family — tofu everywhere (install a font, e.g. media-fonts/dejavu)"
+    [ -n "$_fm" ] && _ok "monospace resolves to: $_fm" || _warn "fontconfig has no monospace family — foot / code will show tofu"
+    if [ -z "$_fe" ] || [ "$_fe" = "$_fs" ]; then
+        _info "no dedicated emoji font (emoji render as tofu). Optional: media-fonts/noto-emoji"
+    else
+        _ok "emoji font: $_fe"
+    fi
+    if [ "$IS_GENTOO" = 1 ] && ! portage::pkg_installed media-fonts/dejavu \
+        && ! portage::pkg_installed media-fonts/noto \
+        && ! portage::pkg_installed media-fonts/liberation-fonts; then
+        _warn "no baseline font package installed (install.sh deps: media-fonts/dejavu)"
+    fi
+else
+    _info "fc-match not available — cannot check fonts here (media-libs/fontconfig)"
+fi
+
+# ---- dotfile integrity ----------------------------------------
+# Derived straight from install/dotfiles.manifest — no second copy of the list.
+# gpu.local.lua / monitors.local.lua are machine-local BY DESIGN and are not in
+# the manifest, so they are never reported here.
+_sec "Dotfile integrity"
+_dn_ok=0; _dn_bad=0
+while IFS='|' read -r _base _src _dest _rest; do
+    _base=$(printf '%s' "$_base" | tr -d '[:space:]')
+    _src=$(printf '%s' "$_src" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    _dest=$(printf '%s' "$_dest" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    case "$_base" in config) _root="${XDG_CONFIG_HOME:-$HOME/.config}" ;; home) _root="$HOME" ;; *) continue ;; esac
+    _lnk="$_root/$_dest"; _tgt="$REPO_DIR/$_src"
+    case "$(symlink::state "$_lnk" "$_tgt")" in
+        correct)    _dn_ok=$((_dn_ok+1)) ;;
+        real-file)  _info "$_dest is a real file, not the repo link (intentional local copy?)" ;;
+        absent)     _warn "$_dest missing — run: install.sh dotfiles --apply"; _dn_bad=$((_dn_bad+1)) ;;
+        broken)     _warn "$_dest is a broken symlink — run: install.sh dotfiles --apply"; _dn_bad=$((_dn_bad+1)) ;;
+        wrong-link) _warn "$_dest points somewhere other than the repo"; _dn_bad=$((_dn_bad+1)) ;;
+        *)          _warn "$_dest: unexpected state"; _dn_bad=$((_dn_bad+1)) ;;
+    esac
+done < <(grep -vE '^[[:space:]]*(#|$)' "$REPO_DIR/install/dotfiles.manifest")
+[ "$_dn_bad" = 0 ] && _ok "all $_dn_ok managed dotfiles link to the repo" \
+                   || _warn "$_dn_bad of $((_dn_ok+_dn_bad)) managed dotfiles need attention (see above)"
+
 # ---- desktop utilities: launcher / screenshots / clipboard -----------
 # Read-only. These are all `required` in the catalogue, so a missing one also
 # shows up under "Required packages"; this section adds the binary + the
@@ -580,7 +802,7 @@ fi
 _id_rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 _id_sd="$_id_rt/infinite-desktop"
 _id_sig="${HYPRLAND_INSTANCE_SIGNATURE:-}"
-_id_procs=$(pgrep -f 'infinite_desktop_core\.py' 2>/dev/null | tr '\n' ' ')
+_id_procs=$({ pgrep -f 'infinite_desktop_core\.py' 2>/dev/null || true; } | tr '\n' ' ')
 _id_procs="${_id_procs% }"
 _id_nproc=$(printf '%s' "$_id_procs" | wc -w)
 

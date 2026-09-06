@@ -7,9 +7,10 @@
 
 hl.on("hyprland.start", function()
     -- Make the Wayland session visible to the systemd user session and D-Bus
-    -- so xdg-desktop-portal and user services work.
-    hl.exec_cmd("systemctl --user import-environment PATH WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE")
-    hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE")
+    -- so xdg-desktop-portal and user services (mako, hyprpolkitagent, …) work.
+    -- lua/env.lua has already set the XDG_* identity variables (see docs/SESSION.md).
+    hl.exec_cmd("systemctl --user import-environment PATH WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE")
+    hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE")
 
     -- polkit authentication agent — the thing that renders privilege prompts.
     -- Repo standard: sys-auth/hyprpolkitagent (install/packages.gentoo), which

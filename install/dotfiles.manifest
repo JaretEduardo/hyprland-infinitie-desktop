@@ -37,6 +37,9 @@ config | config/mako/config                    | mako/config
 # ---- launcher (fuzzel) -----------------------------------------------
 config | config/fuzzel/fuzzel.ini              | fuzzel/fuzzel.ini
 
+# ---- xdg-desktop-portal backend preference (see docs/SESSION.md) -----
+config | config/xdg-desktop-portal/hyprland-portals.conf | xdg-desktop-portal/hyprland-portals.conf
+
 # The Infinite Desktop autostart + keybinds are declared in
 # config/hypr/lua/infinite-desktop.lua (linked above). `install.sh
 # infinite-desktop` installs only the runtime scripts and no longer edits

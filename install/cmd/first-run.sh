@@ -181,7 +181,45 @@ else
 fi
 
 # ============================================================================
-# 5. Lid / power-button behaviour — physical test still pending
+# 5. Session services — audio (user systemd) + logind drop-in
+# ============================================================================
+# The PipeWire user units are socket-activated but NOT enabled by anything in
+# this repo. Enabling them is a per-user, no-root, reversible action, so under
+# --apply this offers to do it. The logind drop-in needs root — this only
+# reports it and points at `install.sh power`.
+_section "Session services (audio, logind)"
+_pw_units="pipewire.socket pipewire-pulse.socket wireplumber.service"
+_pw_enabled=1
+for _u in $_pw_units; do
+    systemctl --user is-enabled --quiet "$_u" 2>/dev/null || _pw_enabled=0
+done
+if [ "$_pw_enabled" = 1 ]; then
+    log::ok "PipeWire user units already enabled ($_pw_units)"
+else
+    log::warn "PipeWire user units are not enabled — this session has no audio until they are."
+    printf '    systemctl --user enable --now %s\n' "$_pw_units"
+    if _ask "Enable them now (user scope, no root, reversible)?"; then
+        if [ -n "$DRY" ]; then
+            log::info "dry-run: would run: systemctl --user enable --now $_pw_units"
+        elif systemctl --user enable --now $_pw_units; then
+            log::ok "PipeWire user units enabled + started"
+        else
+            log::error "could not enable the PipeWire units — run the command above by hand"
+        fi
+    else
+        log::info "skipped — run the command above when ready"
+    fi
+fi
+_ld=/etc/systemd/logind.conf.d/50-hyprland-infinite-desktop.conf
+if [ -f "$_ld" ]; then
+    log::ok "logind drop-in installed ($_ld)"
+else
+    log::warn "logind drop-in NOT installed — a single Power-key press powers the machine OFF."
+    log::info "Fix (needs root): ./install.sh power --apply"
+fi
+
+# ============================================================================
+# 6. Lid / power-button behaviour — physical test still pending
 # ============================================================================
 # Reuses: docs/FIRST-RUN.md's own lid/suspend checklist (written in the
 # power stage) — this just points at it and asks for confirmation, it does
@@ -202,7 +240,7 @@ else
 fi
 
 # ============================================================================
-# 6. NVIDIA compute backend
+# 7. NVIDIA compute backend
 # ============================================================================
 _section "NVIDIA compute backend"
 if ! nvidia::present; then
@@ -278,7 +316,7 @@ else
 fi
 
 # ============================================================================
-# 7. Final summary
+# 8. Final summary
 # ============================================================================
 # Reuses: install.sh doctor entirely.
 _section "Final summary (install.sh doctor)"

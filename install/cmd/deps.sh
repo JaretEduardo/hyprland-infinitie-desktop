@@ -144,7 +144,8 @@ while IFS= read -r g; do
                 recommended) MISSING_RECOMMENDED+=("$atom") ;;
                 *)           MISSING_OPTIONAL+=("$atom") ;;
             esac
-            [ "$repo" = guru ] && MISSING_KEYWORDS+=("$atom")
+            # guru packages always need ~amd64; other atoms flag it in their note.
+            case "$repo:$note" in guru:*|*~amd64*) MISSING_KEYWORDS+=("$atom") ;; esac
             printf '  %-37s %-11s %-9s %s%s\n' \
                 "$atom" "$tier" "MISSING" "$repo" "${note:+   # $note}"
         fi
@@ -183,7 +184,7 @@ _emerge_line() {  # <title> <atoms...>
 }
 if [ "${#MISSING_KEYWORDS[@]}" -gt 0 ]; then
     printf '\n'
-    ui::section "Accept ~amd64 for guru packages (as root, before emerge)"
+    ui::section "Accept ~amd64 for these packages (as root, before emerge)"
     for _a in "${MISSING_KEYWORDS[@]}"; do
         printf "   echo '%s ~amd64' >> /etc/portage/package.accept_keywords/%s\n" "$_a" "${_a#*/}"
     done

@@ -4,6 +4,21 @@
 hl.env("XCURSOR_SIZE", "24")
 hl.env("HYPRCURSOR_SIZE", "24")
 
+-- Desktop-session identity — the variables xdg-desktop-portal and desktop
+-- apps read to know they are in a Hyprland Wayland session.
+--   XDG_CURRENT_DESKTOP  picks the portal backend (…/hyprland-portals.conf)
+--   XDG_SESSION_TYPE     "wayland" vs "x11"
+--   XDG_SESSION_DESKTOP  session identity; nothing else sets this on a bare launch
+-- Hyprland itself already exports XDG_CURRENT_DESKTOP=Hyprland and
+-- XDG_SESSION_TYPE=wayland when started bare from a TTY; these lines re-affirm
+-- that (harmless — the values are always correct for THIS session, however it
+-- was launched) and add XDG_SESSION_DESKTOP. They must be set BEFORE
+-- autostart.lua runs `systemctl --user import-environment` /
+-- `dbus-update-activation-environment`. See docs/SESSION.md.
+hl.env("XDG_CURRENT_DESKTOP", "Hyprland")
+hl.env("XDG_SESSION_TYPE",    "wayland")
+hl.env("XDG_SESSION_DESKTOP", "Hyprland")
+
 -- ~/.local/bin on PATH — not guaranteed otherwise. Hyprland's own PATH is
 -- whatever launched it (tty/greeter), with no login shell profile in between
 -- on most setups; Quickshell (autostart.lua) and everything it spawns (e.g.

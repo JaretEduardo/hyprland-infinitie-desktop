@@ -19,6 +19,8 @@ lib/
   portage.sh                   read-only Portage / overlay / catalogue helpers
   nvidia.sh                    read-only, power-aware NVIDIA observation (no-wake)
   profile.sh                   read-only machine-profile detection/validation
+  session.sh                   read-only user-session inspection (units, D-Bus,
+                                USE flags, fonts) — TTY-safe, timeout-guarded
   backup.sh  symlink.sh        safe, non-destructive dotfile primitives
 profiles/
   common/profile.conf          workstation defaults, matches no specific machine
@@ -37,6 +39,7 @@ config/
   logind/                      logind.conf.d drop-in for lid/power-key/idle-action
   mako/                        notification daemon config (linked by dotfiles)
   fuzzel/                      app-launcher config (linked by dotfiles)
+  xdg-desktop-portal/          hyprland-portals.conf: portal backend order (linked by dotfiles)
   polkit/actions/              polkit policy for the helper above; also NOT installed
   quickshell/                  modular Quickshell bar
 scripts/
@@ -186,15 +189,26 @@ by `dotfiles` like every other managed config. Full matrix and reasoning in
 
 ## Session services
 
-Three user-session services the desktop needs, all `required` in
-`install/packages.gentoo`, all started (guarded, no double-spawn) by
-`lua/autostart.lua`, all reported by `doctor`'s *Session services* section:
+User-session services the desktop needs, all `required` in
+`install/packages.gentoo`, all reported by `doctor`. The autostarted ones are
+started guarded (no double-spawn) by `lua/autostart.lua`. Full narrative in
+[SESSION.md](SESSION.md).
 
-| service | package | how it starts | notes |
+| service | package(s) | how it starts | notes |
 | --- | --- | --- | --- |
 | notifications | `gui-apps/mako` | `mako` as a guarded bare process; also D-Bus-activatable | owns `org.freedesktop.Notifications`; config `config/mako/config` linked by `dotfiles` |
 | battery / power | `sys-power/upower` | D-Bus system activation (on first query) | backs Quickshell `modules/Battery.qml`; `upower.service` idle until queried is normal |
-| polkit agent | `sys-auth/hyprpolkitagent` | `systemctl --user start hyprpolkitagent.service` | renders `pkexec` prompts. Once installed, a manual `polkit-gnome` / `polkit-kde` agent is **no longer needed** and can be removed — this repo never depends on one. After first install run `systemctl --user daemon-reload` (or re-login) so the unit is found. |
+| polkit agent | `sys-auth/hyprpolkitagent` | `systemctl --user start hyprpolkitagent.service` | renders `pkexec` prompts. Replaces a manual `polkit-gnome`/`-kde` agent — this repo never depends on one. `systemctl --user daemon-reload` (or re-login) after first install. |
+| portals | `xdg-desktop-portal` + `-hyprland` + `-gtk` | D-Bus-activated; `xdg-desktop-portal-hyprland.service` is socket/bus-activated | screen sharing (Firefox/Chromium/OBS/…) + file pickers. Backend order pinned by `config/xdg-desktop-portal/hyprland-portals.conf` (linked by `dotfiles`). |
+| audio | `media-video/pipewire` + `wireplumber` | **socket units, NOT enabled by this repo** — `systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service` | `first-run --apply` offers to run it; `doctor` prints the command. `pipewire-pulse.socket` = the PulseAudio API most apps use. |
+
+Also session-scoped: `lua/env.lua` sets `XDG_CURRENT_DESKTOP` /
+`XDG_SESSION_DESKTOP` / `XDG_SESSION_TYPE`; `gui-wm/hyprland` needs
+`USE="X systemd dbus-session"` (profile defaults on `desktop/systemd`) for
+Xwayland + user-session integration. `doctor` has *Session environment*,
+*Xwayland*, *Desktop portals*, *Audio session*, *Idle / lock*, *logind
+drop-in*, *Fonts* and *Dotfile integrity* sections — all read-only, all
+degrade cleanly from a TTY with no session bus.
 
 ## Desktop utilities
 

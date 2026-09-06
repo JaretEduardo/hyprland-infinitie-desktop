@@ -19,6 +19,9 @@ never touches EFI or a bootloader, and never installs Gentoo itself.
   (polkit prompts) — autostarted, no manual polkit-gnome/-kde agent needed
 - desktop utilities: `fuzzel` launcher (Super+Space), `grim`+`slurp` screenshots
   (Print / Super+Shift+S — see below), `wl-clipboard`
+- Xwayland for X11 apps, xdg-desktop-portal (+ Hyprland & GTK backends) for
+  screen sharing and file pickers, a `dejavu` font baseline — all in the
+  catalogue so a clean rebuild has them (see [SESSION.md](docs/SESSION.md))
 - AMD iGPU as the primary/compositor GPU, NVIDIA dGPU on-demand
   (ECO by default, COMPUTE on request — see [HYBRID-GPU.md](docs/HYBRID-GPU.md))
 - `hypridle` + `hyprlock` for idle/lock/DPMS, `logind` for lid/power-key —
@@ -122,11 +125,22 @@ cd ~/hyprland-infinite-desktop
 ```
 
 ```bash
-# log into the Hyprland session you just configured, then:
+# log into the Hyprland session you just configured (start it with: Hyprland), then:
 ./install.sh first-run --apply   # VALIDATE IN SESSION — real monitor
-                                  # detection, wev-guided media keys, a
-                                  # guided NVIDIA compute-backend test
+                                  # detection, wev-guided media keys, a guided
+                                  # NVIDIA compute-backend test, AND it offers
+                                  # to enable the PipeWire user units (audio)
 ./install.sh doctor               # read-only diagnostics, any time after
+```
+
+Two things `full --apply` cannot do for you (`doctor` and `first-run` flag both):
+
+```bash
+# audio — the PipeWire user units are socket-activated but not enabled by anyone
+systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
+# power key — without this drop-in a single Power press powers the machine OFF
+./install.sh power --apply          # shows the drop-in + prints the `sudo install …`
+                                    # command to run (install.sh never sudos itself)
 ```
 
 `full` already calls `check`, `deps`'s own gate, `dotfiles`, `gpu`, `power`,
@@ -204,6 +218,7 @@ behaviour ([HYBRID-GPU.md](docs/HYBRID-GPU.md)), and a real lid/suspend cycle
 | [INSTALL.md](docs/INSTALL.md) | every command, in detail |
 | [HYBRID-GPU.md](docs/HYBRID-GPU.md) | AMD primary / NVIDIA on-demand, ECO/COMPUTE, RTD3 |
 | [POWER.md](docs/POWER.md) | idle/lock/DPMS/suspend/lid ownership matrix |
+| [SESSION.md](docs/SESSION.md) | TTY launch, session env vars, portals + PipeWire, audio enable |
 | [PROFILES.md](docs/PROFILES.md) | machine profiles: format, matching, validation |
 | [FIRST-RUN.md](docs/FIRST-RUN.md) | the guided first-run checklist, in detail |
 | [INFINITE-DESKTOP.md](docs/INFINITE-DESKTOP.md) | Infinite Desktop's own architecture |

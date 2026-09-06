@@ -11,9 +11,20 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("systemctl --user import-environment PATH WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE")
     hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE")
 
-    -- polkit authentication agent (privilege prompts). Harmless if the unit is
-    -- not installed; a later stage adds the package.
+    -- polkit authentication agent — the thing that renders privilege prompts.
+    -- Repo standard: sys-auth/hyprpolkitagent (install/packages.gentoo), which
+    -- ships the systemd *user* unit started here. `systemctl --user start` is
+    -- idempotent (a no-op if already running). Harmless if not installed yet;
+    -- needs `systemctl --user daemon-reload` once after first install (or a
+    -- re-login) for the unit to be found.
     hl.exec_cmd("systemctl --user start hyprpolkitagent.service")
+
+    -- mako: the notification daemon (owns org.freedesktop.Notifications).
+    -- Guarded exactly like qs / hypridle below — a config reload or a stray
+    -- extra run can never spawn a second instance. mako is also D-Bus
+    -- activatable, so a notification sent before this runs still starts it;
+    -- this only makes it come up with the session. Harmless if not installed.
+    hl.exec_cmd("command -v mako >/dev/null 2>&1 && (pgrep -x mako >/dev/null || mako) || true")
 
     -- Quickshell (config/quickshell/, linked to ~/.config/quickshell/ by
     -- `install.sh dotfiles --apply`). Guarded so a Hyprland config reload (which

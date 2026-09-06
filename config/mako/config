@@ -1,0 +1,39 @@
+# mako — Wayland notification daemon for this workstation.
+# man 5 mako   ·   reload after edits:   makoctl reload
+#
+# Palette and geometry deliberately match the Quickshell bar
+# (config/quickshell/Bar.qml) and lua/appearance.lua — Tokyo Night colours,
+# 6 px rounding, 2 px border, top-right. This is a single small file on
+# purpose: no theme system yet. mako reads only ~/.config/mako/config; if you
+# ever need a per-machine tweak, add an `include=<path>` line here by hand.
+#
+# Started by config/hypr/lua/autostart.lua; also D-Bus-activatable, so a
+# notification sent before that runs still brings mako up.
+
+font=sans-serif 10
+background-color=#1a1b26
+text-color=#c0caf5
+border-color=#7aa2f7
+border-size=2
+border-radius=6
+
+width=340
+height=140
+margin=10
+padding=12
+anchor=top-right
+layer=top
+max-visible=5
+default-timeout=6000
+
+icons=1
+max-icon-size=48
+markup=1
+format=<b>%s</b>\n%b
+
+[urgency=low]
+border-color=#2a2e3f
+
+[urgency=critical]
+border-color=#f7768e
+default-timeout=0

@@ -35,6 +35,7 @@ config/
   hypr/                        modular Hyprland Lua config (see below)
   hypridle/  hyprlock/         idle ladder + lock screen config (see POWER.md)
   logind/                      logind.conf.d drop-in for lid/power-key/idle-action
+  mako/                        notification daemon config (linked by dotfiles)
   polkit/actions/              polkit policy for the helper above; also NOT installed
   quickshell/                  modular Quickshell bar
 scripts/
@@ -134,7 +135,7 @@ pcall-free.
 | `appearance.lua` | minimal gaps / borders / layout; Quickshell owns the visuals later |
 | `bindings.lua` | basic desktop keybinds only; `Super+Return` runs `$TERMINAL`, falling back to `foot` (a `required` package — see `install/packages.gentoo`) |
 | `laptop.lua` | XF86 volume/mic/brightness/media keybinds (`wpctl`/`brightnessctl`/`playerctl`) |
-| `autostart.lua` | environment import, polkit agent, Quickshell, hypridle |
+| `autostart.lua` | environment import; polkit agent (`hyprpolkitagent.service`, user unit); `mako` (notifications); Quickshell; `hypridle` — each guarded so a reload never double-spawns |
 | `infinite-desktop.lua` | Infinite Desktop autostart + keybinds; the only seam to that component. Loaded last; `hl.unbind`s + rebinds `SUPER + arrows`. |
 
 ### Machine-local files
@@ -179,6 +180,18 @@ never both. `install.sh power` writes the one file that needs root
 drop-in); `hypridle.conf` / `hyprlock.conf` need no privilege and are linked
 by `dotfiles` like every other managed config. Full matrix and reasoning in
 [POWER.md](POWER.md).
+
+## Session services
+
+Three user-session services the desktop needs, all `required` in
+`install/packages.gentoo`, all started (guarded, no double-spawn) by
+`lua/autostart.lua`, all reported by `doctor`'s *Session services* section:
+
+| service | package | how it starts | notes |
+| --- | --- | --- | --- |
+| notifications | `gui-apps/mako` | `mako` as a guarded bare process; also D-Bus-activatable | owns `org.freedesktop.Notifications`; config `config/mako/config` linked by `dotfiles` |
+| battery / power | `sys-power/upower` | D-Bus system activation (on first query) | backs Quickshell `modules/Battery.qml`; `upower.service` idle until queried is normal |
+| polkit agent | `sys-auth/hyprpolkitagent` | `systemctl --user start hyprpolkitagent.service` | renders `pkexec` prompts. Once installed, a manual `polkit-gnome` / `polkit-kde` agent is **no longer needed** and can be removed — this repo never depends on one. After first install run `systemctl --user daemon-reload` (or re-login) so the unit is found. |
 
 ## Infinite Desktop
 

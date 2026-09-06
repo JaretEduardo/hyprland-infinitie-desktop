@@ -15,6 +15,8 @@ never touches EFI or a bootloader, and never installs Gentoo itself.
 - Gentoo + systemd
 - Hyprland ≥ 0.55 (Lua config, `hl.dsp.*` dispatch API), Quickshell as the bar/shell
 - NetworkManager, PipeWire + WirePlumber
+- session services: `mako` (notifications), UPower (battery), `hyprpolkitagent`
+  (polkit prompts) — autostarted, no manual polkit-gnome/-kde agent needed
 - AMD iGPU as the primary/compositor GPU, NVIDIA dGPU on-demand
   (ECO by default, COMPUTE on request — see [HYBRID-GPU.md](docs/HYBRID-GPU.md))
 - `hypridle` + `hyprlock` for idle/lock/DPMS, `logind` for lid/power-key —
@@ -65,6 +67,7 @@ install.sh
 
 Hyprland session
   |-- Quickshell               the bar (NOT Waybar)
+  |-- mako / UPower / hyprpolkitagent   notifications, battery, polkit prompts
   |-- Infinite Desktop         optional evdev pan/navigate daemon
   |-- hypridle / hyprlock      idle -> dim -> lock -> DPMS -> suspend
   `-- AMD primary + NVIDIA on-demand (ECO / COMPUTE)

@@ -8,6 +8,33 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hypr_ipc import move_window_exact_lua, batch_async
 from abs_delta import AbsDeltaTracker, units_to_pixels
 
+# --- per-session lifecycle: one instance per Hyprland session, dies with it ---
+# (see session_lock.py). Done FIRST — before any print or thread — so a second
+# launch in the same session exits quietly and every session logs to its own
+# file instead of a shared /tmp log written by daemons from other sessions.
+import session_lock as _session
+
+_SESSION_SIG = _session.session_signature()
+_session.redirect_output_to_session_log(_SESSION_SIG)
+
+_LOCK_FD, _LOCK_HOLDER = _session.acquire_session_lock(_SESSION_SIG)
+if _LOCK_FD is None:
+    print("[i] Infinite Desktop ya corre para esta sesion Hyprland "
+          "(pid %s). No arranco una segunda instancia." % _LOCK_HOLDER, flush=True)
+    sys.exit(0)
+
+_session.gc_dead_sessions(_SESSION_SIG)
+
+
+def _on_session_gone():
+    print("[i] La sesion Hyprland que lanzo Infinite Desktop (%s) termino. "
+          "Cerrando limpiamente." % (_SESSION_SIG or "sin-firma"), flush=True)
+    os._exit(0)
+
+
+threading.Thread(target=_session.watch_session,
+                 args=(_SESSION_SIG, _on_session_gone), daemon=True).start()
+
 #ruta deseada /home/usuario/scripts/
 
 # Ya no se pasan rutas de dispositivo a mano: se autodetectan por capacidades.

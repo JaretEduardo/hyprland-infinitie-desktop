@@ -383,6 +383,108 @@ if [ -n "$bl" ]; then
 else _info "no backlight device exposed"; fi
 _have brightnessctl && _ok "brightnessctl present" || _info "brightnessctl not installed (media-key backlight control)"
 
+# ---- session services: notifications / UPower / polkit agent ----------
+# Read-only. Distinguishes: package missing · installed but the bus service is
+# unavailable · installed and D-Bus-activatable but not running yet · OK.
+# D-Bus activation is normal: a service that is only "activatable" is NOT a
+# problem, and nothing here sends a real notification or triggers a pkexec.
+_sec "Session services (notifications, UPower, polkit agent)"
+
+_user_bus=0
+if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ]; then
+    _user_bus=1
+fi
+
+# _svc_present <atom> <bin> [abs-path]  -> "yes" | "no" | "unknown"
+#   Gentoo: the packages.gentoo catalogue is the source of truth.
+#   Off Gentoo: fall back to a binary on PATH or an absolute path.
+_svc_present() {
+    if [ "$IS_GENTOO" = 1 ]; then
+        portage::pkg_installed "$1" && echo yes || echo no
+    elif _have "$2" || { [ -n "${3:-}" ] && [ -x "$3" ]; }; then
+        echo yes
+    else
+        echo unknown
+    fi
+}
+
+# --- notification daemon (repo standard: gui-apps/mako) ---
+case "$(_svc_present gui-apps/mako mako)" in
+  yes)
+    _ok "notifications: mako installed"
+    if [ "$_user_bus" = 1 ] && _have busctl; then
+        if busctl --user status org.freedesktop.Notifications >/dev/null 2>&1; then
+            if pgrep -x mako >/dev/null 2>&1; then _ok "  org.freedesktop.Notifications is served by mako"
+            else                                   _ok "  org.freedesktop.Notifications is served (by another daemon)"; fi
+        elif busctl --user list 2>/dev/null | grep -qE '^org\.freedesktop\.Notifications[[:space:]]'; then
+            _info "  not running yet — D-Bus-activatable; lua/autostart.lua brings it up with the session"
+        else
+            _warn "  installed but org.freedesktop.Notifications has no owner and is not activatable"
+        fi
+    else
+        _info "  session bus not available here — runtime state not checked"
+    fi
+    ;;
+  no)      _warn "notifications: gui-apps/mako NOT installed (install.sh deps) — notify-send / the Notifications API fail silently" ;;
+  *)       _info "notifications: mako not found (repo standard; not verifiable off Gentoo)" ;;
+esac
+
+# --- UPower (Quickshell modules/Battery.qml; system bus, activated on demand) ---
+# `upower.service` sitting inactive is NORMAL (D-Bus-activated) — never a WARN.
+case "$(_svc_present sys-power/upower upower)" in
+  yes)
+    _ok "UPower: sys-power/upower installed"
+    if _have busctl; then
+        if busctl --system list 2>/dev/null | grep -qE '^org\.freedesktop\.UPower[[:space:]]'; then
+            _ok "  org.freedesktop.UPower is on the system bus (running or activatable)"
+            if hw::has_battery && _have upower; then
+                # `upower -e` only enumerates (read-only); it D-Bus-activates the
+                # daemon, which is exactly how Quickshell will use it.
+                if upower -e 2>/dev/null | grep -qi battery; then
+                    _ok "  UPower reports a battery device"
+                else
+                    _warn "  this machine has a battery but UPower lists none (upower -e) — investigate"
+                fi
+            fi
+        else
+            _warn "  org.freedesktop.UPower is neither running nor activatable — is the package fully installed?"
+        fi
+    else
+        _info "  busctl not available — UPower bus state not checked"
+    fi
+    ;;
+  no)      _warn "UPower: sys-power/upower NOT installed (install.sh deps) — the bar's battery widget stays hidden" ;;
+  *)       _info "UPower: 'upower' not found (repo standard; not verifiable off Gentoo)" ;;
+esac
+
+# --- polkit authentication agent (repo standard: sys-auth/hyprpolkitagent) ---
+# Binary lives in libexec (not on PATH). Never trigger a pkexec prompt here.
+case "$(_svc_present sys-auth/hyprpolkitagent hyprpolkitagent /usr/libexec/hyprpolkitagent)" in
+  yes)     _ok "polkit agent: sys-auth/hyprpolkitagent installed" ;;
+  no)      _warn "polkit agent: sys-auth/hyprpolkitagent NOT installed (install.sh deps) — pkexec prompts would have no UI" ;;
+  *)       _info "polkit agent: hyprpolkitagent not found (repo standard; not verifiable off Gentoo)" ;;
+esac
+_agent_running=""
+for _pa in hyprpolkitagent polkit-gnome-authentication-agent-1 polkit-kde-authentication-agent-1 \
+           polkit-mate-authentication-agent-1 lxpolkit xfce-polkit; do
+    if pgrep -x "$_pa" >/dev/null 2>&1 || pgrep -f "$_pa" >/dev/null 2>&1; then
+        _agent_running="$_pa"; break
+    fi
+done
+if [ "$_agent_running" = hyprpolkitagent ]; then
+    _ok "  hyprpolkitagent is running in this session"
+elif [ -n "$_agent_running" ]; then
+    _info "  a non-standard polkit agent is running ($_agent_running) — the repo standard is hyprpolkitagent; the other is no longer needed"
+elif [ "$_user_bus" = 1 ]; then
+    if _have systemctl && systemctl --user cat hyprpolkitagent.service >/dev/null 2>&1; then
+        _info "  hyprpolkitagent.service is known but not active yet — lua/autostart.lua starts it on hyprland.start"
+    else
+        _info "  no polkit agent running; hyprpolkitagent.service not yet known to 'systemctl --user' (run 'systemctl --user daemon-reload' after install, or re-login)"
+    fi
+else
+    _info "  polkit agent runtime state not checked (no session here)"
+fi
+
 # ---- Infinite Desktop / evdev -----------------------------
 _sec "Infinite Desktop / evdev"
 if _have python3 && python3 -c 'import evdev' 2>/dev/null; then _ok "python 'evdev' module importable"
@@ -438,8 +540,46 @@ if _have udevadm && ls /dev/input/event* >/dev/null 2>&1; then
 else
     _info "no udevadm / no /dev/input here — input-access check skipped (verify on the target)"
 fi
-if [ -f /tmp/infinite-desktop.log ] && grep -q 'Sin dispositivos de entrada accesibles' /tmp/infinite-desktop.log 2>/dev/null; then
-    _warn "the running daemon reported it has no accessible input devices (see /tmp/infinite-desktop.log)"
+# Daemon lifecycle — THIS Hyprland session only. The daemon keeps one instance
+# per session (an flock in $XDG_RUNTIME_DIR/infinite-desktop/<sig>.lock),
+# self-exits when its session ends, and logs to a per-session file. Never infer
+# state from another session's daemon or its log.
+_id_rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+_id_sd="$_id_rt/infinite-desktop"
+_id_sig="${HYPRLAND_INSTANCE_SIGNATURE:-}"
+_id_procs=$(pgrep -f 'infinite_desktop_core\.py' 2>/dev/null | tr '\n' ' ')
+_id_procs="${_id_procs% }"
+_id_nproc=$(printf '%s' "$_id_procs" | wc -w)
+
+if [ -n "$_id_sig" ]; then
+    _id_key=$(printf '%s' "$_id_sig" | tr / _)
+    _id_lock="$_id_sd/$_id_key.lock"
+    _id_log="$_id_sd/$_id_key.log"
+    _id_pid=""
+    if _have flock && [ -e "$_id_lock" ] && ! flock -n "$_id_lock" -c true 2>/dev/null; then
+        _id_pid=$(head -n1 "$_id_lock" 2>/dev/null)
+        _ok "Infinite Desktop daemon running for this session (pid ${_id_pid:-?})"
+    elif [ "$_id_nproc" -gt 0 ]; then
+        _warn "Infinite Desktop: $_id_nproc process(es) running ($_id_procs) but none holds this session's lock — likely all from previous sessions"
+    else
+        _info "Infinite Desktop daemon not running for this session (it starts on hyprland.start; ./install.sh infinite-desktop to (re)install)"
+    fi
+    # daemons from OTHER sessions still alive
+    _id_stale=0
+    for _p in $_id_procs; do
+        [ "$_p" = "${_id_pid:-x}" ] || _id_stale=$((_id_stale + 1))
+    done
+    if [ "$_id_stale" -gt 0 ]; then
+        _warn "$_id_stale Infinite Desktop process(es) from other/older Hyprland sessions still running — the watchdog exits each ~10 s after its session ends; if they persist, something is wrong"
+    fi
+    # only THIS session's log
+    if [ -f "$_id_log" ] && grep -q 'Sin dispositivos de entrada accesibles' "$_id_log" 2>/dev/null; then
+        _warn "this session's daemon reported no accessible input devices ($_id_log) — run: install.sh input"
+    fi
+elif [ "$_id_nproc" -gt 0 ]; then
+    _info "not inside a Hyprland session here (no HYPRLAND_INSTANCE_SIGNATURE) — $_id_nproc infinite_desktop_core.py process(es) running, not attributable to a session from here"
+else
+    _info "not inside a Hyprland session here — Infinite Desktop runtime state not checked"
 fi
 
 # ---- summary -------------------------------------------------

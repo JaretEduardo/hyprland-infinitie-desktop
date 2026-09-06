@@ -123,8 +123,10 @@ cat <<'EOF'
       your keyboard and pointer (mouse/touchpad) nodes. If it does NOT, log out
       and back in (or reboot) and re-check.
     - Infinite Desktop pans on SUPER+ALT + mouse OR one finger on the touchpad,
-      and /tmp/infinite-desktop.log shows "Teclado detectado" +
-      "Mouse detectado" / "Touchpad detectado".
+      and this session's daemon log shows "Teclado detectado" +
+      "Mouse detectado" / "Touchpad detectado". The log is
+      "$XDG_RUNTIME_DIR/infinite-desktop/$HYPRLAND_INSTANCE_SIGNATURE.log"
+      (or the ".../infinite-desktop/current.log" symlink).
     - REVERT behaviour: after `sudo rm` of the rule + `udevadm control --reload`
       + `udevadm trigger`, check whether the ACL is gone WITHOUT logging out.
       Whether the trigger alone revokes it was not tested here — if it survives,

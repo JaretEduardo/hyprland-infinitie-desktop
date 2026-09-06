@@ -58,7 +58,8 @@ detected fact, not a decision to write. See [PROFILES.md](PROFILES.md).
 ```
 
 Reads `install/packages.gentoo` and reports what is needed, grouped into base /
-Hyprland / Quickshell / audio / network / power / NVIDIA / kernel-dev. On Gentoo
+Hyprland / Quickshell / notifications / audio / network / power / NVIDIA /
+kernel-dev. On Gentoo
 it checks overlay status and each atom, then prints the exact
 `eselect repository enable` / `emaint sync` / `emerge --ask` commands — it never
 runs them. `--install` is refused (not implemented). Off Gentoo it prints the
@@ -92,8 +93,10 @@ hardware-expectation validation), hardware and drivers, AMD-as-primary,
 NVIDIA power state, `nvidia-compute-mode` policy, the stage-`gpu` config,
 NVIDIA sleep services, Gentoo overlays and required packages, NetworkManager,
 PipeWire, Hyprland/Quickshell tools (and Hyprland version — flags `< 0.55`),
-battery, backlight, and the `input` group / `evdev` needed by Infinite
-Desktop.
+battery, backlight, the **session services** (mako notifications, UPower,
+`hyprpolkitagent`) — distinguishing "package missing" from "installed, D-Bus
+activatable, not running yet" so normal D-Bus activation is never a false
+`[WARN]` — and the `input` group / `evdev` needed by Infinite Desktop.
 
 It fixes nothing. NVIDIA checks use only the no-wake probe — `doctor` never runs
 `nvidia-smi` and will not be what keeps the GPU awake. `--nvidia-deep` opts into

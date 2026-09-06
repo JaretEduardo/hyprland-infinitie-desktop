@@ -29,6 +29,11 @@ config | config/hypr/lua/infinite-desktop.lua  | hypr/lua/infinite-desktop.lua
 config | config/hypridle/hypridle.conf         | hypr/hypridle.conf
 config | config/hyprlock/hyprlock.conf         | hypr/hyprlock.conf
 
+# ---- notifications (mako) ----------------------------------------------
+# Per-file link, so ~/.config/mako/ stays a real directory. mako reads exactly
+# ~/.config/mako/config (see config/mako/config); started by lua/autostart.lua.
+config | config/mako/config                    | mako/config
+
 # The Infinite Desktop autostart + keybinds are declared in
 # config/hypr/lua/infinite-desktop.lua (linked above). `install.sh
 # infinite-desktop` installs only the runtime scripts and no longer edits

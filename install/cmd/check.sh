@@ -254,7 +254,9 @@ _tool hyprctl       "the Hyprland compositor"
 _tool qs            "Quickshell"
 _tool hypridle
 _tool hyprlock
+_tool mako          "notification daemon"
 _tool brightnessctl "backlight control for keybinds"
+_tool upower        "battery/power D-Bus service (bar battery widget)"
 _tool wpctl         "PipeWire / WirePlumber"
 _tool pipewire
 _tool emerge        "Gentoo package manager"

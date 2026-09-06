@@ -56,13 +56,41 @@ colliding binds through fallback ladders (`Z → COMMA → MINUS → F13`) — i
 
 ```lua
 hl.on("hyprland.start", function()
-    hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6 > /tmp/infinite-desktop.log 2>&1")
+    hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6")
 end)
 ```
 
-`infinite_desktop_core.py` reads **only `sys.argv[1]`** — a floating-point
-**pan-speed multiplier** (`1.6` above; default `1.0`). It takes no device
-arguments; devices are auto-detected (see 2.3).
+No output redirect and no `pgrep` guard here on purpose — the daemon owns its
+own lifecycle (see 2.1.1). `infinite_desktop_core.py` reads **only
+`sys.argv[1]`** — a floating-point **pan-speed multiplier** (`1.6` above;
+default `1.0`). It takes no device arguments; devices are auto-detected (see 2.3).
+
+### 2.1.1 Lifecycle — one instance per Hyprland session
+
+`hl.on("hyprland.start", …)` fires once per session, but Hyprland does **not**
+kill the commands it spawned when it exits — they are reparented to `init` and
+keep running. Without lifecycle handling, every session left another
+`infinite_desktop_core.py` alive; they all wrote one shared `/tmp` log, and a
+straggler whose session had ended (its `uaccess` ACL already revoked) logged
+"no accessible input devices" while a live one logged the opposite — so
+`doctor` read contradictory state.
+
+`scripts/infinite-desktop/session_lock.py` fixes this with three
+session-scoped mechanisms, none hardcoding a PID or `/run/user/<uid>`:
+
+| concern | mechanism |
+| --- | --- |
+| **one instance per session** | an `flock` on `$XDG_RUNTIME_DIR/infinite-desktop/<signature>.lock`. A second launch in the same session fails the lock and exits `0`. The kernel drops an `flock` when its holder dies, so a **stale lock never blocks** a new instance — no PID files to reap, no `pkill`. |
+| **a new session can always start** | the lock path keys on `HYPRLAND_INSTANCE_SIGNATURE` — a different session is a different file, so an old session's instance can't block the new one. |
+| **die with the session** | a watchdog thread polls the launching Hyprland instance (its pid from `$XDG_RUNTIME_DIR/hypr/<signature>/hyprland.lock`, cross-checked against `/proc/<pid>/comm`). Gone for two polls (~10 s grace) → the daemon `os._exit(0)`s. |
+| **per-session log** | stdout/stderr are redirected to `$XDG_RUNTIME_DIR/infinite-desktop/<signature>.log`. `current.log` (same dir) and `/tmp/infinite-desktop.log` are best-effort symlinks to the active session's log for convenience; the daemon never *writes* a shared file. |
+
+On startup the daemon also GC's `<signature>.{lock,log}` for sessions that are
+no longer running. A **manual run** outside a session (`HYPRLAND_INSTANCE_SIGNATURE`
+unset) uses a `nosession-<uid>` key and never self-exits.
+
+It is **not** a systemd user service yet — that is future polish. The flock +
+watchdog give the same "one per session, dies with it" guarantee without one.
 
 ### 2.2 evdev → core
 
@@ -217,8 +245,9 @@ End-to-end, on real hardware, on **Lenovo 82SC** (Ideapad, AMD; `profiles/lenovo
   "toggle" })`), holding `SUPER+ALT` and dragging one finger on the touchpad
   panned the window correctly — so the full **`ABS/ABS_MT` → delta →
   `acc_x`/`acc_y` → `hyprctl` IPC** path works. No `Traceback` / `ERROR` in
-  `/tmp/infinite-desktop.log`; the daemon logged `[+] Touchpad detectado`
-  alongside the two keyboards and the pointing-stick "Mouse" node.
+  the session log (`$XDG_RUNTIME_DIR/infinite-desktop/<signature>.log`); the
+  daemon logged `[+] Touchpad detectado` alongside the two keyboards and the
+  pointing-stick "Mouse" node.
 - **REL mouse:** still supported unchanged — `classify_device()` returns
   `mouse` first (`REL_X + REL_Y + BTN_LEFT`), and `mouse_reader_device()` is
   untouched. Both sources feed the same accumulator.
@@ -394,6 +423,14 @@ Once the working spelling is known, edit only the two functions named in 4.3.
   argument, so passing a device path as `argv[1]` would raise `ValueError`.
   Nothing called it (autostart runs the core directly).
 
+- **The shared `/tmp/infinite-desktop.log`** — the autostart line used to be
+  `python3 …core.py 1.6 > /tmp/infinite-desktop.log 2>&1`. Every Hyprland
+  session's daemon (and Hyprland leaves them running after it exits) wrote the
+  same file, interleaving contradictory output. Replaced by per-session logs
+  under `$XDG_RUNTIME_DIR/infinite-desktop/` plus the flock/watchdog lifecycle
+  in `session_lock.py` (section 2.1.1). `/tmp/infinite-desktop.log` survives
+  only as a best-effort symlink to the current session's log.
+
 - **`patch_hyprland.py`** — a Python script the installer used to emit as a
   heredoc and run against `~/.config/hypr/hyprland.lua`, appending an autostart
   block + 21 keybinds and remapping any that collided with existing binds
@@ -423,8 +460,10 @@ run `sudo`/`usermod`.
 | File (under `scripts/infinite-desktop/`) | Role |
 | --- | --- |
 | `infinite_desktop_core.py` | evdev daemon: panning, edge-push drag, keyboard move, Quickshell hint |
+| `session_lock.py` | per-Hyprland-session lifecycle: single-instance flock, session-death watchdog, per-session log (see 2.1.1) |
 | `abs_delta.py` | pure ABS/ABS_MT-position → per-frame relative-delta transform for touchpads (no I/O) |
 | `test_abs_delta.py` | synthetic-sequence unit tests for `abs_delta.py` (not deployed) |
+| `test_lifecycle.py` | unit tests for `session_lock.py` — lock, stale lock, new session, session-death, log isolation (not deployed) |
 | `hypr_ipc.py` | the only place `hyprctl` calls are built; Hyprland-version compat layer |
 | `navigate_windows.py` | `SUPER + arrows` — focus/center the next window (floating vs master vs dwindle) |
 | `move_window.py` | `SUPER + SHIFT + arrows` — move the active floating window, push others at the edge |

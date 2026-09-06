@@ -17,8 +17,13 @@
 local mod = "SUPER"
 
 -- Autostart the evdev daemon. "1.6" is the pan-speed multiplier (its only arg).
+-- The daemon owns its own lifecycle (scripts/infinite-desktop/session_lock.py):
+-- exactly one instance per Hyprland session, self-exiting when THIS session
+-- ends, logging to $XDG_RUNTIME_DIR/infinite-desktop/<signature>.log. So this
+-- line deliberately does NOT redirect output and does NOT `pgrep`-guard — a
+-- pgrep guard would risk keeping a previous session's instance alive.
 hl.on("hyprland.start", function()
-    hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6 > /tmp/infinite-desktop.log 2>&1")
+    hl.exec_cmd("python3 ~/scripts/infinite_desktop_core.py 1.6")
 end)
 
 -- SUPER + arrows: Infinite Desktop's navigate replaces the plain "move focus"

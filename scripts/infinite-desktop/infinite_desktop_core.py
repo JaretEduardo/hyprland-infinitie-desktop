@@ -2,11 +2,13 @@ import sys, struct, threading, time, subprocess, json, os, glob
 import fcntl
 import select
 import math
+import signal
 from evdev import InputDevice, list_devices, ecodes
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hypr_ipc import move_window_exact_lua, batch_async
 from abs_delta import AbsDeltaTracker, units_to_pixels
+from pan_gate import Gate
 
 # world-coordinate / camera layer (scripts/infinite-desktop/world.py). Fully
 # optional — if it fails to import, the pan still works, only the minimap
@@ -113,6 +115,48 @@ mouse_rel_y = 0
 
 # Paso de movimiento con teclado
 KEY_MOVE_STEP = 20
+
+# --- idle gates: block the two worker loops while no gesture can produce work ---
+# (pan_gate.py). IDLE  -> loop blocks in wait_until_active(), ~0 wakeups/s.
+# ACTIVE -> the loop's original ~16 ms body runs, unchanged. The evdev readers
+# call *_gate.wake_locked() from inside their existing `with lock:` blocks.
+_shutdown = threading.Event()
+# PAN (loop principal): Super+Alt held.
+_pan_gate = Gate(lock, lambda: super_pressed and alt_pressed, _shutdown)
+# WINDOW DRAG (monitor_window_drag): Super + left button, without Alt/Ctrl —
+# or a drag already in progress that still needs to be wound down.
+_drag_gate = Gate(
+    lock,
+    lambda: (super_pressed and btn_left and not alt_pressed and not ctrl_pressed)
+            or window_drag_active,
+    _shutdown,
+)
+
+
+def _shutdown_waker():
+    """Blocks on _shutdown; once set, notifies every gate so the two worker
+    loops fall out of wait()/sleep and return. Runs on its own thread so the
+    signal handler itself never has to touch a lock (deadlock-safe)."""
+    _shutdown.wait()
+    for g in (_pan_gate, _drag_gate):
+        try:
+            g.wake()
+        except Exception:
+            pass
+
+
+def _request_shutdown(signum, _frame):
+    # Signal-safe: only set the Event. _shutdown_waker does the notifying.
+    _shutdown.set()
+
+
+for _sig in (signal.SIGTERM, signal.SIGINT):
+    try:
+        signal.signal(_sig, _request_shutdown)
+    except Exception:
+        pass
+
+threading.Thread(target=_shutdown_waker, daemon=True, name="shutdown_waker").start()
 
 def read_inverted():
     try:
@@ -243,73 +287,95 @@ def get_monitor_center():
 
 
 def monitor_window_drag():
-    """Monitorea si se esta arrastrando una ventana y aplica empuje en bordes"""
+    """Monitorea si se esta arrastrando una ventana y aplica empuje en bordes.
+
+    IDLE: si no puede existir un window-drag (Super+botón izquierdo sin Alt/Ctrl)
+    ni hay uno en curso, el hilo se BLOQUEA en _drag_gate.wait_until_active()
+    (~0 wakeups/s) — NO ejecuta get_focused_window()/hyprctl.
+    ACTIVE: al despertar, el cuerpo original corre con la MISMA cadencia ~16 ms.
+    """
     global window_drag_active, last_window_bounds, mouse_rel_x, mouse_rel_y
-    
+
     dragged_window_addr = None
-    
-    while True:
-        try:
-            with lock:
-                is_dragging = super_pressed and btn_left and not alt_pressed and not ctrl_pressed
-                mouse_dx = mouse_rel_x
-                mouse_dy = mouse_rel_y
-                mouse_rel_x = 0
-                mouse_rel_y = 0
-            
-            if is_dragging and not window_drag_active:
-                focused = get_focused_window()
-                if focused and focused.get('address'):
-                    dragged_window_addr = focused['address']
-                    window_drag_active = True
-                    last_window_bounds = get_window_bounds(focused)
-            
-            elif not is_dragging and window_drag_active:
-                window_drag_active = False
-                dragged_window_addr = None
-                last_window_bounds = None
-            
-            if window_drag_active and dragged_window_addr:
-                window = get_focused_window()
-                if window and window.get('address') == dragged_window_addr:
-                    current_bounds = get_window_bounds(window)
-                    monitor = get_monitor_bounds()
-                    MARGIN = 10
-                    
-                    touch_left   = current_bounds['left']   <= monitor['left']   + MARGIN
-                    touch_right  = current_bounds['right']  >= monitor['right']  - MARGIN
-                    touch_top    = current_bounds['top']    <= monitor['top']    + MARGIN
-                    touch_bottom = current_bounds['bottom'] >= monitor['bottom'] - MARGIN
-                    
-                    if (touch_left or touch_right or touch_top or touch_bottom) and (mouse_dx != 0 or mouse_dy != 0):
-                        pan_dx = 0
-                        pan_dy = 0
-                        
-                        if touch_right and mouse_dx > 0:
-                            pan_dx = -mouse_dx
-                        elif touch_left and mouse_dx < 0:
-                            pan_dx = -mouse_dx
-                        
-                        if touch_bottom and mouse_dy > 0:
-                            pan_dy = -mouse_dy
-                        elif touch_top and mouse_dy < 0:
-                            pan_dy = -mouse_dy
-                        
-                        if pan_dx != 0 or pan_dy != 0:
-                            r = subprocess.run(['hyprctl', 'activeworkspace', '-j'], 
-                                             capture_output=True, text=True, timeout=0.1)
-                            ws = json.loads(r.stdout)
-                            workspace_id = ws['id']
-                            pan_other_windows(dragged_window_addr, int(pan_dx), int(pan_dy), workspace_id)
-                    
-                    last_window_bounds = current_bounds
-                else:
+
+    while not _shutdown.is_set():
+        # ---- idle: block until a drag is possible / in progress ----
+        if not _drag_gate.wait_until_active():
+            break
+        # Motion accumulated by mouse_reader_device while this loop was parked is
+        # stale; drop it so the first active frame only sees post-wake movement
+        # (the old 62 Hz loop reset these every iteration).
+        with lock:
+            mouse_rel_x = 0
+            mouse_rel_y = 0
+
+        # ---- active: original body, original cadence ----
+        while not _shutdown.is_set():
+            try:
+                with lock:
+                    is_dragging = super_pressed and btn_left and not alt_pressed and not ctrl_pressed
+                    mouse_dx = mouse_rel_x
+                    mouse_dy = mouse_rel_y
+                    mouse_rel_x = 0
+                    mouse_rel_y = 0
+
+                if is_dragging and not window_drag_active:
+                    focused = get_focused_window()
+                    if focused and focused.get('address'):
+                        dragged_window_addr = focused['address']
+                        window_drag_active = True
+                        last_window_bounds = get_window_bounds(focused)
+
+                elif not is_dragging and window_drag_active:
                     window_drag_active = False
                     dragged_window_addr = None
-            
-            time.sleep(0.016)
-        except Exception as e:
-            time.sleep(0.1)
+                    last_window_bounds = None
+
+                if window_drag_active and dragged_window_addr:
+                    window = get_focused_window()
+                    if window and window.get('address') == dragged_window_addr:
+                        current_bounds = get_window_bounds(window)
+                        monitor = get_monitor_bounds()
+                        MARGIN = 10
+
+                        touch_left   = current_bounds['left']   <= monitor['left']   + MARGIN
+                        touch_right  = current_bounds['right']  >= monitor['right']  - MARGIN
+                        touch_top    = current_bounds['top']    <= monitor['top']    + MARGIN
+                        touch_bottom = current_bounds['bottom'] >= monitor['bottom'] - MARGIN
+
+                        if (touch_left or touch_right or touch_top or touch_bottom) and (mouse_dx != 0 or mouse_dy != 0):
+                            pan_dx = 0
+                            pan_dy = 0
+
+                            if touch_right and mouse_dx > 0:
+                                pan_dx = -mouse_dx
+                            elif touch_left and mouse_dx < 0:
+                                pan_dx = -mouse_dx
+
+                            if touch_bottom and mouse_dy > 0:
+                                pan_dy = -mouse_dy
+                            elif touch_top and mouse_dy < 0:
+                                pan_dy = -mouse_dy
+
+                            if pan_dx != 0 or pan_dy != 0:
+                                r = subprocess.run(['hyprctl', 'activeworkspace', '-j'],
+                                                 capture_output=True, text=True, timeout=0.1)
+                                ws = json.loads(r.stdout)
+                                workspace_id = ws['id']
+                                pan_other_windows(dragged_window_addr, int(pan_dx), int(pan_dy), workspace_id)
+
+                        last_window_bounds = current_bounds
+                    else:
+                        window_drag_active = False
+                        dragged_window_addr = None
+
+                # nothing can drag right now and no drag to wind down -> park
+                if not is_dragging and not window_drag_active:
+                    break
+
+                time.sleep(0.016)
+            except Exception as e:
+                time.sleep(0.1)
 
 
 def move_active_window(direction):
@@ -463,17 +529,26 @@ def kbd_reader_device(path):
 
         notify_state = None
         with lock:
+            is_modifier = True
             if code in (KEY_LEFTMETA, KEY_RIGHTMETA):
                 super_pressed = (value == 1)
             elif code in (KEY_LEFTALT, KEY_RIGHTALT):
                 alt_pressed = (value == 1)
             elif code in (KEY_LEFTCTRL, KEY_RIGHTCTRL):
                 ctrl_pressed = (value == 1)
+            else:
+                is_modifier = False
 
             combo = super_pressed and alt_pressed
             if combo != frame_held_hidden:
                 frame_held_hidden = combo
                 notify_state = combo
+
+            # Super/Alt/Ctrl gate BOTH worker loops — wake them so a parked
+            # loop re-checks its predicate. (Non-modifier keys change nothing.)
+            if is_modifier:
+                _pan_gate.wake_locked()
+                _drag_gate.wake_locked()
 
         # La llamada IPC (subprocess) se hace FUERA del lock y en su
         # propio hilo: qs ipc call puede tardar unos ms y no queremos
@@ -511,7 +586,11 @@ def mouse_reader_device(path):
 
         with lock:
             if etype == EV_KEY and code == BTN_LEFT:
-                btn_left = (value == 1)
+                new_btn = (value == 1)
+                if new_btn != btn_left:
+                    btn_left = new_btn
+                    # left button gates monitor_window_drag — wake it
+                    _drag_gate.wake_locked()
             elif etype == EV_REL:
                 if code == REL_X:
                     mouse_rel_x += value
@@ -583,7 +662,10 @@ def touchpad_reader_device(path):
         for e in dev.read_loop():
             if e.type == ecodes.EV_KEY and e.code == BTN_LEFT:
                 with lock:
-                    btn_left = (e.value == 1)
+                    new_btn = (e.value == 1)
+                    if new_btn != btn_left:
+                        btn_left = new_btn
+                        _drag_gate.wake_locked()
                 continue
 
             d = tracker.feed(e.type, e.code, e.value)
@@ -720,45 +802,53 @@ def _warn_no_floating_if_due():
         print("[!] No hay ventanas floating en este workspace; "
               "Infinite Desktop no tiene nada que panear.", flush=True)
 
-# Loop principal para arrastre de escritorio
-while True:
-    time.sleep(0.016)
+# Loop principal para arrastre de escritorio (PAN Super+Alt).
+# IDLE : bloqueado en _pan_gate.wait_until_active() (~0 wakeups/s) — NO llama
+#        time.sleep(0.016) en bucle, NO toca hyprctl.
+# ACTIVE: al despertar, el cuerpo original corre con la MISMA cadencia
+#        (time.sleep(0.016) + trabajo) mientras Super+Alt siga pulsado.
+while not _shutdown.is_set():
+    if not _pan_gate.wait_until_active():
+        break
 
-    with lock:
-        active_drag = super_pressed and alt_pressed
-        dx = acc_x
-        dy = acc_y
-        acc_x = 0.0
-        acc_y = 0.0
+    while not _shutdown.is_set():
+        time.sleep(0.016)
 
-    if not active_drag:
-        continue
+        with lock:
+            active_drag = super_pressed and alt_pressed
+            dx = acc_x
+            dy = acc_y
+            acc_x = 0.0
+            acc_y = 0.0
 
-    idx = int(round(dx))
-    idy = int(round(dy))
+        if not active_drag:
+            break   # Super+Alt released -> vuelve al gate bloqueante
 
-    if idx == 0 and idy == 0:
-        continue
+        idx = int(round(dx))
+        idy = int(round(dy))
 
-    try:
-        workspace_id = get_cached_workspace_id()
-        if workspace_id is None:
+        if idx == 0 and idy == 0:
             continue
 
-        r = subprocess.run(['hyprctl', 'clients', '-j'], capture_output=True, text=True, timeout=0.1)
-        clients = json.loads(r.stdout)
+        try:
+            workspace_id = get_cached_workspace_id()
+            if workspace_id is None:
+                continue
 
-        floating_here = [w for w in clients
-                         if w.get('floating') and w.get('workspace', {}).get('id') == workspace_id]
+            r = subprocess.run(['hyprctl', 'clients', '-j'], capture_output=True, text=True, timeout=0.1)
+            clients = json.loads(r.stdout)
 
-        if not floating_here:
-            _warn_no_floating_if_due()
+            floating_here = [w for w in clients
+                             if w.get('floating') and w.get('workspace', {}).get('id') == workspace_id]
 
-        exprs = [move_window_exact_lua(w['at'][0] + idx, w['at'][1] + idy, w['address'])
-                 for w in floating_here]
+            if not floating_here:
+                _warn_no_floating_if_due()
 
-        batch_async(exprs)
-        if exprs:
-            _cam_bump(workspace_id, idx, idy)
-    except Exception as e:
-        pass
+            exprs = [move_window_exact_lua(w['at'][0] + idx, w['at'][1] + idy, w['address'])
+                     for w in floating_here]
+
+            batch_async(exprs)
+            if exprs:
+                _cam_bump(workspace_id, idx, idy)
+        except Exception as e:
+            pass

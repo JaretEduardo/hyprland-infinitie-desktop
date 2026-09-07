@@ -125,8 +125,21 @@ watchdog give the same "one per session, dies with it" guarantee without one.
   larger than half the axis range is dropped (slot-switch guard). Details and
   the synthetic tests: `abs_delta.py` / `test_abs_delta.py`.
 - Reader threads update shared modifier / pointer state under a single
-  `threading.Lock`. The main loop (16 ms tick) and a `monitor_window_drag`
-  thread consume that state.
+  `threading.Lock`. The main loop and a `monitor_window_drag` thread consume
+  that state.
+- **Idle gating (`pan_gate.py`).** Those two consumer loops are *event-gated*:
+  while no gesture can produce work (main loop → `Super+Alt`; drag loop →
+  `Super` + left button without `Alt`/`Ctrl`, or a drag winding down) the thread
+  BLOCKS in `Gate.wait_until_active()` — ~0 wakeups/s, no `hyprctl`, no
+  `time.sleep(0.016)` spin. The evdev readers call `gate.wake_locked()` from
+  inside their existing `with lock:` block whenever a modifier / button changes;
+  the gate is a `threading.Condition` over that same lock, so the predicate
+  check and the wait happen without releasing it — no lost wakeup. Once active,
+  the loop body and its 16 ms cadence are exactly as before. Idle daemon
+  wakeups dropped from ~146/s to ~2.5/s. Shutdown: a `SIGTERM`/`SIGINT` handler
+  sets a `threading.Event`; a tiny waker thread notifies both gates so the
+  loops fall out and the process exits (~0.15 s). Synthetic tests:
+  `test_pan_gate.py`.
 
 ### 2.3 core → hypr_ipc → Hyprland
 

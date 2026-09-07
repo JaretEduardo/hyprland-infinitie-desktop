@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 """hand_control.py — optional webcam hand-gesture control for the Infinite Desktop.
 
-FIRST PASS. Three gestures, all processed 100% locally (nothing leaves the
-machine; the camera is opened only while this process runs):
+All processing is 100% local (nothing leaves the machine; the camera is opened
+only while this process runs). Gestures, highest priority first:
 
-  A) OPEN PALM + move   -> pan the Infinite Desktop (smoothed relative delta of
-                           the palm position; the same camera mechanism the
-                           touchpad and keyboard use — move every floating window
-                           on the workspace, bump world.py's camera the other way)
-  B) SWIPE LEFT / RIGHT -> previous / next window (world_navigate.py, i.e. the
-                           same as Super+Alt+Shift+Tab / Super+Alt+Tab; focus-only
-                           while a Viewport Mosaic is active). A small state
-                           machine — it tolerates the static gesture label
-                           flickering to fist/other/None mid-swipe as long as
-                           the landmarks stay valid.
-  C) FOUR FINGERS       -> viewport_mosaic.py toggle (index+middle+ring+pinky
-                           extended, thumb folded — computed from the landmarks,
-                           not a label; held ~0.45 s; cooldown)
+  1. shutter closed     -> nothing (see the Shutter class)
+  2. PINCH (thumb+index) -> grab the FOCUSED floating window and move ONLY it
+                           with the hand; the camera and every other window stay
+                           put. Release drops it there; pseudo-max restore is
+                           invalidated exactly like a World Map drag. v1 always
+                           takes the focused window — no pointing / hit-test yet.
+  3. FIST               -> CLUTCH: end the pan now, hold still, recolocate the
+                           hand freely; on re-open the current hand position is
+                           the new pan baseline (no jump).
+  4. FIST then THUMBS-UP -> toggle Viewport Mosaic (viewport_mosaic.py). A bare
+                           thumbs-up does nothing; holding it never re-toggles.
+  5. OPEN PALM + move   -> pan the Infinite Desktop (smoothed relative delta of
+                           the palm base; the same camera mechanism the touchpad
+                           and keyboard use — move every floating window, bump
+                           world.py's camera the other way)
+  6. OPEN PALM held still + tilt L/R -> previous / next window (world_navigate.py;
+                           focus-only while a Viewport Mosaic is active). Only
+                           evaluated while the palm is stationary, so a natural
+                           wrist tilt during a pan never navigates.
 
 Every threshold and every timing lives in the config (seconds, not frame
 counts — the real frame rate is ~15 fps, not 24). SHUTTER-AWARE: see the
@@ -53,6 +59,10 @@ except Exception as e:                       # pragma: no cover
 _RUN_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "hand-control")
 _STATE = os.path.join(_RUN_DIR, "state")
 _PIDF = os.path.join(_RUN_DIR, "hand.pid")
+# pseudo-maximize restore store (lua/floating-world.lua). A manual edit — World
+# Map drag, SUPER+mouse, and now a pinch move — removes the window's file so
+# SUPER+F does not snap the hand-placed geometry back. Same policy as world_edit.py.
+_PMAX_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "hypr-fworld")
 DEBUG = os.environ.get("HAND_CONTROL_DEBUG") == "1"
 
 
@@ -71,6 +81,9 @@ _DEFAULTS = {
                  "cooldown_seconds": 0.6, "neutral_threshold": 0.20,
                  "max_translation_speed": 0.12, "stationary_seconds": 0.15,
                  "nav_block_seconds": 0.5},
+    "pinch":    {"close_ratio": 0.35, "open_ratio": 0.55, "confirm_seconds": 0.12,
+                 "grace_seconds": 0.20, "move_smoothing": 0.5, "deadzone": 0.004,
+                 "sensitivity": 1400.0, "max_delta": 90.0},
     "mosaic_gesture": {"fist_arm_seconds": 0.18, "thumb_hold_seconds": 0.25,
                        "cooldown_seconds": 0.8, "reset_seconds": 0.15,
                        "thumb_direction_threshold": 0.035},
@@ -119,12 +132,18 @@ def _load_config():
 
 def _print_thresholds(cfg):
     p, ti, mg, sh = cfg["pan"], cfg["tilt"], cfg["mosaic_gesture"], cfg["shutter"]
+    pn = cfg["pinch"]
     print("thresholds:")
     print("  pan     sensitivity=%s smoothing=%s/%s speed_ref=%s deadzone=%s "
           "cap=%s confirm=%ss grace=%ss max_track=%s"
           % (p["sensitivity"], p["smoothing"], p.get("smoothing_fast"),
              p.get("speed_ref"), p["deadzone"], p["max_delta_per_frame"],
              p["confirm_seconds"], p["grace_seconds"], p.get("max_tracking_speed")))
+    print("  pinch   close=%s open=%s confirm=%ss grace=%ss move_smoothing=%s "
+          "deadzone=%s sensitivity=%s max_delta=%s"
+          % (pn["close_ratio"], pn["open_ratio"], pn["confirm_seconds"],
+             pn["grace_seconds"], pn["move_smoothing"], pn["deadzone"],
+             pn["sensitivity"], pn["max_delta"]))
     print("  tilt    angle=%s confirm=%ss cooldown=%ss neutral=%s "
           "max_speed=%s stationary=%ss nav_block=%ss"
           % (ti["angle_threshold"], ti["confirm_seconds"],
@@ -272,6 +291,120 @@ def _toggle_mosaic():
     if s:
         subprocess.Popen(["python3", s, "toggle"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+class PinchGrab:
+    """PINCH GRAB v1: move ONLY the focused floating window with the hand.
+
+    Snapshot the focused window's SCREEN position (`hyprctl clients` reports
+    global logical coords — Hyprland bakes in each monitor's layout offset, so a
+    window follows the hand across monitors and mixed scales with no special
+    handling) and the hand anchor at grab time. Each step moves that one window
+    to `base + smoothed_hand_delta * sensitivity` in a single `hyprctl` batch.
+
+    The camera is NEVER touched (world.bump_camera is not called) — a pinch move
+    changes where a window sits in the world, it does not pan the desktop. World
+    coordinates stay consistent because `worldX = screenX + cameraX` and the
+    camera is frozen. On release the pseudo-max restore file is dropped, exactly
+    like world_edit.py / a World Map drag."""
+
+    _SKIP_TITLE = ("Picture-in-Picture", "Picture in Picture")
+
+    def __init__(self, cfg):
+        pn = cfg["pinch"]
+        self.move_smooth = float(pn["move_smoothing"])
+        self.dz = float(pn["deadzone"])
+        self.sens = float(pn["sensitivity"])
+        self.max_delta = float(pn["max_delta"])
+        self.max_track = float(cfg["pan"].get("max_tracking_speed", 4.0))
+        self.active = False
+        self.addr = None
+        self.ws = None
+        self.d_outlier = 0
+        self.dx = self.dy = 0
+        self.world_x = self.world_y = 0
+
+    def begin(self, anchor, now):
+        """Grab the focused window. False (no grab) if there is no valid target."""
+        w = _hjson(["activewindow"]) or {}
+        addr = w.get("address")
+        title = w.get("title") or ""
+        if (not addr
+                or not w.get("mapped", True)
+                or not w.get("floating")
+                or w.get("fullscreen")
+                or (w.get("workspace") or {}).get("id", 0) <= 0
+                or any(t in title for t in self._SKIP_TITLE)
+                or "at" not in w or "size" not in w):
+            return False
+        self.addr = addr
+        self.ws = w["workspace"]["id"]
+        self.base_x, self.base_y = float(w["at"][0]), float(w["at"][1])
+        self.tx, self.ty = self.base_x, self.base_y
+        self.anchor = (anchor[0], anchor[1])
+        self.ema = (anchor[0], anchor[1])
+        self.raw_prev = (anchor[0], anchor[1])
+        self.raw_prev_t = now
+        self.outlier_run = 0
+        self.dx = self.dy = 0
+        try:
+            cam = world.read_camera(self.ws)
+            self.cam_x = float(cam.get("x", 0.0))
+            self.cam_y = float(cam.get("y", 0.0))
+        except Exception:
+            self.cam_x = self.cam_y = 0.0
+        self.world_x = round(self.base_x + self.cam_x)
+        self.world_y = round(self.base_y + self.cam_y)
+        self.active = True
+        return True
+
+    def step(self, palm, now):
+        if not self.active:
+            return
+        self.d_outlier = 0
+        # reject an isolated impossible landmark jump (same idea as the pan);
+        # keep the last good point, don't slow real movement
+        dt = max(1e-3, now - self.raw_prev_t)
+        spd = math.hypot(palm[0] - self.raw_prev[0],
+                         palm[1] - self.raw_prev[1]) / dt
+        if spd > self.max_track and self.outlier_run < 3:
+            self.outlier_run += 1
+            self.d_outlier = 1
+            palm = self.raw_prev
+        else:
+            self.outlier_run = 0
+        self.raw_prev = palm
+        self.raw_prev_t = now
+
+        a = self.move_smooth
+        self.ema = (a * palm[0] + (1 - a) * self.ema[0],
+                    a * palm[1] + (1 - a) * self.ema[1])
+        ndx = self.ema[0] - self.anchor[0]
+        ndy = self.ema[1] - self.anchor[1]
+        ndx = math.copysign(max(0.0, abs(ndx) - self.dz), ndx)
+        ndy = math.copysign(max(0.0, abs(ndy) - self.dz), ndy)
+        want_x = self.base_x + ndx * self.sens
+        want_y = self.base_y + ndy * self.sens
+        # per-frame cap: a glitch that survives outlier reject still can't teleport
+        want_x = min(self.tx + self.max_delta, max(self.tx - self.max_delta, want_x))
+        want_y = min(self.ty + self.max_delta, max(self.ty - self.max_delta, want_y))
+        self.tx, self.ty = want_x, want_y
+        self.dx = round(self.tx - self.base_x)
+        self.dy = round(self.ty - self.base_y)
+        self.world_x = round(self.tx + self.cam_x)
+        self.world_y = round(self.ty + self.cam_y)
+        batch([move_window_exact_lua(round(self.tx), round(self.ty), self.addr)],
+              timeout=2)
+
+    def end(self):
+        if self.active and self.addr:
+            try:                       # same pseudo-max invalidation as world_edit.py
+                os.remove(os.path.join(_PMAX_DIR, self.addr))
+            except OSError:
+                pass
+        self.active = False
+        self.addr = None
+        self.ws = None
 
 
 # =========================================================================
@@ -457,6 +590,19 @@ def _palm_base(lm):
     return (sum(xs) / 3.0, sum(ys) / 3.0)
 
 
+def _palm_scale(lm):
+    """A hand-size reference that barely changes with pose: mean of wrist->
+    middle-MCP and index-MCP->pinky-MCP. Used to normalise the pinch distance so
+    it is independent of how near/far the hand is from the camera."""
+    return max(1e-6, (_dist(lm[0], lm[9]) + _dist(lm[5], lm[17])) / 2.0)
+
+
+def _pinch_ratio(lm):
+    """distance(thumb_tip, index_tip) / palm_scale. ~0.15-0.30 when pinched,
+    ~0.8-1.3 with the fingers apart."""
+    return _dist(lm[4], lm[8]) / _palm_scale(lm)
+
+
 def _tilt_angle(lm):
     """Signed angle (radians) of the palm from upright, in mirrored screen
     space: middle-finger MCP (9) relative to the palm base. Tilt the hand so 9
@@ -494,18 +640,21 @@ def _sign(v):
 # gesture engine
 #
 # Priority (highest first):
-#   1. shutter closed   -> nothing (handled in the loop)
-#   2. FIST / THUMBS-UP -> CLUTCH: end the pan now, cancel tilt, re-baseline the
-#                          pan on release. (thumbs-up is still a curled fist, so
-#                          it also clutches — see the mosaic state machine)
-#   3. partial hand     -> no discrete actions; pan may continue; clutch works
-#   4. OPEN PALM X/Y    -> smooth PAN (no arming, no suspension, no decision wait)
-#   5. palm tilt        -> prev / next window   (own state machine, own channel)
-#   6. depth push       -> toggle Viewport Mosaic (own state machine)
+#   1. shutter closed    -> nothing (handled in the loop)
+#   2. PINCH GRAB active  -> exclusive control of the focused window; pan / tilt /
+#                            mosaic / clutch are all suppressed while it runs
+#   3. FIST / THUMBS-UP  -> CLUTCH: end the pan now, cancel tilt, re-baseline the
+#                            pan on release. (thumbs-up is still a curled fist, so
+#                            it also clutches — see the mosaic state machine)
+#   4. partial hand      -> no discrete actions; pan may continue; clutch works
+#   5. OPEN PALM X/Y     -> smooth PAN (no arming, no suspension, no decision wait)
+#   6. palm tilt (still) -> prev / next window  (own state machine, own channel)
+#   The mosaic state machine (fist -> thumbs-up) runs alongside, from a stable fist.
 # =========================================================================
 class GestureEngine:
-    def __init__(self, cfg, panner):
+    def __init__(self, cfg, panner, pinchgrab):
         p, ti, mg = cfg["pan"], cfg["tilt"], cfg["mosaic_gesture"]
+        pn = cfg["pinch"]
         self.pan_sens = float(p["sensitivity"])
         self.pan_smooth = float(p["smoothing"])
         self.pan_smooth_fast = float(p.get("smoothing_fast", p["smoothing"]))
@@ -527,7 +676,12 @@ class GestureEngine:
         self.mg_cd = float(mg["cooldown_seconds"])
         self.mg_reset = float(mg["reset_seconds"])
         self.mg_thumb_dir = float(mg["thumb_direction_threshold"])
+        self.pn_close = float(pn["close_ratio"])
+        self.pn_open = float(pn["open_ratio"])
+        self.pn_confirm = float(pn["confirm_seconds"])
+        self.pn_grace = float(pn["grace_seconds"])
         self.panner = panner
+        self.pinchgrab = pinchgrab
         self.last_tilt = 0.0
         self.last_mosaic = 0.0
         self.last_lm_ts = 0.0
@@ -550,6 +704,13 @@ class GestureEngine:
         self.d_dx = 0
         self.d_dy = 0
         self.d_outlier = 0
+        self.d_pinch_ratio = 0.0
+        self.d_pinch_state = "idle"
+        self.d_pinch_addr = ""
+        self.d_grab_dx = 0
+        self.d_grab_dy = 0
+        self.d_grab_wx = 0
+        self.d_grab_wy = 0
 
     def soft_reset(self):
         """On shutter close/open and on real landmark loss. Cooldowns kept."""
@@ -566,6 +727,11 @@ class GestureEngine:
         self.tilt_state = "neutral"    # neutral | pending | fired
         self.tilt_dir = 0
         self.tilt_since = 0.0
+        # pinch grab SM: idle -> pending -> grabbed -> released -> idle (blocked =
+        # confirmed but no valid focused window; clears when the pinch opens)
+        self.pinch_state = "idle"
+        self.pinch_since = 0.0
+        self.pinch_open_since = None
         # mosaic gesture SM: idle -> fist_armed -> thumbs_pending -> fired -> wait_reset
         self.mg_state = "idle"
         self.mg_fist_since = None
@@ -573,6 +739,8 @@ class GestureEngine:
         self.mg_reset_since = None
         if self.panner.active:
             self.panner.end()
+        if self.pinchgrab.active:
+            self.pinchgrab.end()
 
     def _palm_speed(self, now):
         h = [e for e in self.vel_hist if now - e[0] <= 0.15]
@@ -580,6 +748,38 @@ class GestureEngine:
             return 0.0
         return (math.hypot(h[-1][1] - h[0][1], h[-1][2] - h[0][2])
                 / (h[-1][0] - h[0][0]))
+
+    # ------------------------------------------------------------------
+    def _pinch_sm(self, now, ratio, partial, fist):
+        """idle -> pending -> grabbed -> released -> idle. Hysteresis on the
+        ratio (close_ratio to enter, open_ratio to leave), `confirm_seconds`
+        before it grabs, `grace_seconds` of tolerance for opened/bad frames mid
+        grab. A pinch can only ARM when the hand is not a fist (so a deliberate
+        clutch is never mistaken for a pinch); once grabbed a fist is tolerated."""
+        st = self.pinch_state
+        if st == "idle":
+            if ratio < self.pn_close and not partial and not fist:
+                self.pinch_state = "pending"
+                self.pinch_since = now
+        elif st == "pending":
+            if partial or fist or ratio > self.pn_open:
+                self.pinch_state = "idle"
+            elif now - self.pinch_since >= self.pn_confirm:
+                self.pinch_state = "grabbed"
+                self.pinch_open_since = None
+        elif st == "grabbed":
+            if ratio > self.pn_open:
+                if self.pinch_open_since is None:
+                    self.pinch_open_since = now
+                elif now - self.pinch_open_since >= self.pn_grace:
+                    self.pinch_state = "released"
+            else:
+                self.pinch_open_since = None
+        elif st == "released":
+            self.pinch_state = "idle"
+        elif st == "blocked":
+            if ratio > self.pn_open:
+                self.pinch_state = "idle"
 
     # ------------------------------------------------------------------
     def _mosaic_sm(self, now, mkind, partial):
@@ -656,6 +856,8 @@ class GestureEngine:
             self.d_tilt_state, self.d_mosaic_state = "neutral", "idle"
             self.d_tilt_angle, self.d_thumb, self.d_thumb_hold = 0.0, 0, 0.0
             self.d_speed, self.d_still, self.d_outlier = 0.0, 0, 0
+            self.d_pinch_state, self.d_pinch_ratio, self.d_pinch_addr = "idle", 0.0, ""
+            self.d_grab_dx = self.d_grab_dy = 0
             return
         self.last_lm_ts = now
 
@@ -667,11 +869,50 @@ class GestureEngine:
         self.d_thumb = 1 if thumbs else 0
         open_hand = self.d_gesture == "open_palm"
 
+        # ================= 2. PINCH GRAB — exclusive window control ======
+        pinch_ratio = _pinch_ratio(lm)
+        self.d_pinch_ratio = round(pinch_ratio, 3)
+        self._pinch_sm(now, pinch_ratio, partial, fist)
+        grabbed = self.pinch_state == "grabbed"
+
         mkind = ("thumbs" if (thumbs and not partial) else "fist" if fist
                  else "open" if open_hand else "other")
-        self._mosaic_sm(now, mkind, partial)
+        if not grabbed:
+            self._mosaic_sm(now, mkind, partial)      # never advances during a grab
 
-        # ================= 2. FIST / THUMBS-UP -> CLUTCH ================
+        if grabbed:
+            if not self.pinchgrab.active and not self.pinchgrab.begin(_palm_base(lm), now):
+                self.pinch_state = "blocked"          # no valid focused window
+            if self.pinchgrab.active:
+                if self.panner.active:
+                    self.panner.end()
+                self.prev_ref = None
+                self.ema_ref = None
+                self.tilt_state = "neutral"
+                self.tilt_dir = 0
+                self.clutched = True                 # pan re-baselines on release
+                self.pinchgrab.step(_palm_base(lm), now)
+                self.d_gesture = "pinch"
+                self.d_pinch_state = "grabbed"
+                self.d_pinch_addr = self.pinchgrab.addr or ""
+                self.d_grab_dx, self.d_grab_dy = self.pinchgrab.dx, self.pinchgrab.dy
+                self.d_grab_wx, self.d_grab_wy = self.pinchgrab.world_x, self.pinchgrab.world_y
+                self.d_outlier = self.pinchgrab.d_outlier
+                self.d_pan = self.d_clutch = 0
+                self.d_tilt_state, self.d_tilt_angle = "neutral", 0.0
+                self.d_mosaic_state = self.mg_state
+                self.d_speed, self.d_still = 0.0, 0
+                return
+        elif self.pinchgrab.active:                   # left grab -> release cleanly
+            self.pinchgrab.end()                      # window stays where it is
+            self.clutched = True
+            self.prev_ref = None
+            self.ema_ref = None
+        self.d_pinch_state = self.pinch_state
+        self.d_pinch_addr = ""
+        self.d_grab_dx = self.d_grab_dy = 0
+
+        # ================= 3. FIST / THUMBS-UP -> CLUTCH ================
         if fist:
             if self.panner.active:
                 self.panner.end()
@@ -738,7 +979,7 @@ class GestureEngine:
         pan_ok = (now - self.last_open_ts) <= self.pan_grace
         nav_block = now < self.nav_block_until
 
-        # ================= 4. PAN (translation X/Y) — priority over tilt ==
+        # ================= 5. PAN (translation X/Y) — priority over tilt ==
         self.d_dx = self.d_dy = 0
         if nav_block:
             if self.panner.active:
@@ -768,14 +1009,14 @@ class GestureEngine:
             self.d_pan = 0
         self.prev_ref = self.ema_ref
 
-        # ================= 3. partial hand -> no discrete actions =======
+        # ================= 4. partial hand -> no discrete actions =======
         if partial:
             if self.tilt_state != "fired":
                 self.tilt_state = "neutral"
             self.d_tilt_state = self.tilt_state
             return
 
-        # ================= 5. palm TILT -> prev / next =================
+        # ================= 6. palm TILT -> prev / next =================
         # ONLY while the palm is stationary (pan has priority). Auto-zeroed to
         # however the hand rests; the baseline only moves while near-neutral and
         # stationary, so a wild angle during a fast pan never poisons it.
@@ -825,15 +1066,20 @@ class GestureEngine:
 # preview / debug
 # =========================================================================
 def _dbg_line(sh, ge):
+    pinch = "pinch=%-7s r=%.2f" % (ge.d_pinch_state, ge.d_pinch_ratio)
+    if ge.d_pinch_state == "grabbed":
+        pinch += (" addr=%s gxy=%+d,%+d wxy=%d,%d"
+                  % ((ge.d_pinch_addr or "?")[-6:], ge.d_grab_dx, ge.d_grab_dy,
+                     ge.d_grab_wx, ge.d_grab_wy))
     return ("dbg shutter=%-6s lofi=%4.1f | gesture=%-9s pan=%d clutch=%d "
             "partial=%d speed=%.2f stat=%d tilt=%+.2f tilt_state=%-11s "
             "mosaic=%-13s thumb=%d th=%.2f | raw=%.3f,%.3f filt=%.3f,%.3f "
-            "dxy=%+d,%+d outl=%d%s"
+            "dxy=%+d,%+d outl=%d | %s%s"
             % (sh.state, sh.lofi_std, ge.d_gesture, ge.d_pan, ge.d_clutch,
                ge.d_partial, ge.d_speed, ge.d_still, ge.d_tilt_angle,
                ge.d_tilt_state, ge.d_mosaic_state, ge.d_thumb, ge.d_thumb_hold,
                ge.d_raw[0], ge.d_raw[1], ge.d_filt[0], ge.d_filt[1],
-               ge.d_dx, ge.d_dy, ge.d_outlier,
+               ge.d_dx, ge.d_dy, ge.d_outlier, pinch,
                (" action=%s" % ge.d_action) if ge.d_action else ""))
 
 
@@ -850,6 +1096,10 @@ def _draw(cv2, frame, lm, ge, sh):
                    ge.d_tilt_angle, ge.d_tilt_state, ge.d_mosaic_state,
                    ("  ->%s" % ge.d_action) if ge.d_action else ""),
                 (8, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+    cv2.putText(frame, "pinch %s r %.2f  grab %+d,%+d"
+                % (ge.d_pinch_state, ge.d_pinch_ratio, ge.d_grab_dx, ge.d_grab_dy),
+                (8, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                (0, 255, 120) if ge.d_pinch_state == "grabbed" else (180, 180, 180), 1)
 
 
 def _try_show(cv2, frame):
@@ -921,7 +1171,8 @@ def run():
 
     shutter = Shutter(shcfg, cv2, np)
     panner = Panner()
-    ge = GestureEngine(cfg, panner)
+    pinchgrab = PinchGrab(cfg)
+    ge = GestureEngine(cfg, panner, pinchgrab)
     frame_no = 0
     t_start = time.monotonic()
     ms_acc = 0.0
@@ -1005,6 +1256,8 @@ def run():
     finally:
         if panner.active:
             panner.end()
+        if pinchgrab.active:
+            pinchgrab.end()
         capture.release()
         tracker.close()
         if show_preview:

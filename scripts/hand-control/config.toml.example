@@ -19,12 +19,16 @@ min_tracking_confidence  = 0.5
 
 # --- gesture vocabulary ---
 #   OPEN PALM + translate X/Y   -> PAN
+#   PINCH (thumb + index tip)   -> grab the FOCUSED window and move it (only it;
+#                                  the camera / rest of the desktop stay put)
 #   FIST                        -> CLUTCH (stop pan; recolocate the hand freely)
 #   FIST then THUMBS-UP         -> toggle Viewport Mosaic
 #   palm TILT left / right      -> previous / next window
 # No gesture uses finger COUNT — a finger leaving the frame at an edge would make
 # a false trigger. Fist = "the four main fingers are curled" (safe either way).
 # The mosaic can only fire from a stable fist that then becomes a thumbs-up.
+# Priority while active: shutter-closed > pinch grab > fist clutch > thumbs mosaic
+# > open-palm pan > stationary tilt.
 
 [pan]
 # Tracks the palm BASE (wrist + index-MCP + pinky-MCP), which barely moves when
@@ -52,6 +56,28 @@ max_translation_speed = 0.12   # palm must be slower than this (norm/s) ...
 stationary_seconds    = 0.15   # ... continuously this long before tilt can arm
 nav_block_seconds     = 0.5    # on fire: suppress pan while world_navigate moves,
                                #   then re-baseline the pan to the current hand pos
+
+[pinch]
+# PINCH GRAB v1: thumb-tip (4) + index-tip (8) close together -> grab the
+# currently FOCUSED floating window and move ONLY it with the hand. The camera
+# never moves and no other window pans. Release (open the pinch) drops it where
+# it is; a normal manual edit follows (pseudo-max restore is invalidated, like a
+# World Map drag). v1 always grabs the focused window — no pointing / hit-test.
+#
+# pinch_ratio = distance(thumb_tip, index_tip) / palm_scale  (scale-normalised,
+# so it is independent of how near/far the hand is). Hysteresis: grab starts
+# below close_ratio, ends above open_ratio (open_ratio > close_ratio).
+close_ratio     = 0.35    # pinch_ratio below this (held confirm_seconds) -> grab
+open_ratio      = 0.55    # pinch_ratio above this (held grace_seconds) -> release
+confirm_seconds = 0.12    # pinch must be stable this long before it grabs
+grace_seconds   = 0.20    # tolerate this long of "opened" / bad frames mid-grab
+move_smoothing  = 0.5     # EMA on the window follow (lower = smoother, laggier)
+deadzone        = 0.004   # normalised; ignore hand tremor below this near rest
+sensitivity     = 1400.0  # normalised hand delta -> logical px of window motion
+max_delta       = 90      # logical px hard cap on the per-frame window step
+                          #   (a surviving landmark glitch can't teleport it;
+                          #    isolated spikes are also rejected via
+                          #    pan.max_tracking_speed)
 
 [mosaic_gesture]
 # FIST (stable) -> THUMBS-UP -> toggle Viewport Mosaic. A bare thumbs-up (no

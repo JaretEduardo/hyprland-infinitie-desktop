@@ -27,8 +27,9 @@ end
 
 -- Deliberate order: environment first, monitors, input, appearance, binds,
 -- then floating-world (the window model — re-binds SUPER + F), window-edit
--- (SUPER-tap guard + pseudo-max coherence), laptop, autostart, and Infinite
--- Desktop last (it overrides some binds).
+-- (SUPER-tap guard + pseudo-max coherence), laptop, autostart, Infinite
+-- Desktop (it overrides some binds), and display last (hotplug reactions that
+-- reuse the Infinite Desktop scripts).
 load("lua/env")
 load("lua/monitors")
 load("lua/input")
@@ -39,3 +40,4 @@ load("lua/window-edit")
 load("lua/laptop")
 load("lua/autostart")
 load("lua/infinite-desktop")
+load("lua/display")

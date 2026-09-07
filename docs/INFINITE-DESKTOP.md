@@ -173,6 +173,37 @@ separate desktops. Each shows its own workspace with its own camera; the World
 Map composes `at + camera[window's ws]` so windows from every monitor land on one
 map. No per-monitor camera, no per-monitor hand control — pan is unchanged.
 
+### 2.5.1 Adaptive displays (hotplug)
+
+A workspace is not owned by a monitor. When it changes monitor (Hyprland's
+auto-relocate on unplug, or `hl.dsp.workspace.move`), Hyprland **translates its
+windows by the monitor-origin delta** so they stay viewport-consistent — but
+`worldX = at.x + camera.x` then drifts by that delta (`camera.json` untouched).
+**`display_manager.py`** (event-driven from `lua/display.lua`, no polling) keeps
+it consistent:
+
+- **`sync`** (on `monitor.removed`) — for each workspace now on a different
+  monitor, `world.bump_camera` by the inverse of the origin delta (world
+  positions restored); force a truly-orphaned workspace onto a survivor first
+  (`hl.dsp.workspace.move`). Idempotent via a recorded per-workspace `frame`.
+- **`restore`** (on `monitor.added`) — move a workspace back to its saved *home*
+  output and realign its camera the same way.
+- **`snapshot`** (on `monitor.layout_changed` / `workspace.move_to_monitor` /
+  load) — record topology to
+  `~/.cache/hyprland-infinitie-desktop/display-state.json`. `home` / `frame` only
+  follow an *organic* move (all outputs present), never a re-anchor onto a
+  survivor.
+- **`status`** — read-only JSON (Settings / perf-audit will consume it).
+
+The camera realign runs **only** inside `sync` / `restore` — only when a hotplug
+actually moved a workspace. Never on a plain reload, never for workspace
+navigation, never by any physical-position policy. It never moves a window
+itself, never resets `camera.json`, never deletes a workspace, never touches
+mode / scale / position / workspace assignment. `monitors.local.lua` pins the
+output *geometry* only (`position = "auto"` reshuffles outputs on every `hyprctl
+reload`), not which workspace shows where. `hyprctl keyword` does not work under
+the Lua parser — all dispatch goes through `hl.dsp.*`.
+
 - **`world.py`** owns `camera.json` — one `{x,y}` per workspace, under
   `$XDG_RUNTIME_DIR/infinite-desktop/`, `flock`-guarded, written atomically
   (`os.replace`), **not** persisted across reboot. `bump_camera(ws, dx, dy)`,

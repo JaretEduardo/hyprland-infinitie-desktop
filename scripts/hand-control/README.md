@@ -13,6 +13,7 @@ existing Infinite Desktop scripts/mechanism. No computer vision goes near the
 | gesture | action | reuses |
 | --- | --- | --- |
 | **open palm + translate X/Y** | pan the Infinite Desktop | `world.py` camera + `hypr_ipc` batch move — the same as touchpad/keyboard |
+| **pinch (thumb + index tip)** | grab the **focused** window and move only it | `hypr_ipc` batch move (one window); pmax drop like `world_edit.py` |
 | **fist** | **CLUTCH** — stop everything; recolocate the hand freely | `Panner.end()` |
 | **fist → thumbs-up** | toggle Viewport Mosaic | `viewport_mosaic.py toggle` |
 | **palm tilt left / right** | previous / next window | `world_navigate.py prev-window` / `next-window` (focus-only during a Viewport Mosaic) |
@@ -23,9 +24,26 @@ and the mosaic needs the deliberate fist→thumbs-up *sequence*. Fist = "the fou
 main fingers are curled" (a real fist or fingers folded near an edge — either
 way the safe response is to stop).
 
-Priority (highest first): shutter-closed → **fist/clutch** → partial hand (no
-discrete actions) → **pan** → **tilt**. The mosaic state machine runs alongside,
-only ever advancing from a stable fist.
+Priority (highest first): shutter-closed → **active pinch grab** → **fist/clutch**
+→ partial hand (no discrete actions) → **pan** → **tilt**. The mosaic state
+machine runs alongside, only ever advancing from a stable fist.
+
+- **Pinch grab (v1)** is `idle → pending → grabbed → released`. `pinch_ratio =
+  distance(thumb_tip, index_tip) / palm_scale` (scale-normalised, so it is
+  independent of hand distance); hysteresis `pinch.close_ratio` to enter,
+  `open_ratio` to leave; stable for `confirm_seconds` before it grabs; a fist
+  can never arm it (so a deliberate clutch is safe). On grab it ends the pan,
+  reads the **focused** floating window (`hyprctl activewindow` — must be mapped,
+  floating, not fullscreen, not a special workspace, not PiP; otherwise the pinch
+  does nothing) and snapshots its screen position. Each frame moves **only that
+  window** to `base + smoothed_hand_delta × pinch.sensitivity` in one `hyprctl`
+  batch — the camera is never bumped, nothing else pans. `at` from Hyprland is
+  global logical space, so the window follows the hand across monitors and mixed
+  scales with no special handling. Release drops it where it is and invalidates
+  the pseudo-max restore file (same as a World Map drag). A landmark spike is
+  rejected (`pan.max_tracking_speed`); a real loss > `pan.grace_seconds` ends the
+  grab cleanly (window left put) and a **new** pinch is required to grab again.
+  v1 always takes the focused window — no pointing / hit-test yet.
 
 - **CLUTCH** has absolute priority: fist ends the pan immediately, cancels any
   tilt candidate, and on release the *current* hand position becomes the new pan
@@ -105,11 +123,12 @@ Prints the loaded config path + active thresholds, then one line per frame:
 ```
 dbg shutter=open lofi=62 | gesture=open_palm pan=1 clutch=0 partial=0 speed=0.35 \
     stat=0 tilt=+0.02 tilt_state=neutral mosaic=idle thumb=0 th=0.00 | \
-    raw=0.512,0.480 filt=0.514,0.478 dxy=+4,-1 outl=0
+    raw=0.512,0.480 filt=0.514,0.478 dxy=+4,-1 outl=0 | pinch=grabbed r=0.19 \
+    addr=..1a2b3c gxy=+42,-18 wxy=1234,567
 ```
 
 - `shutter` / `lofi` — shutter detector (open/close the lens to calibrate)
-- `gesture` — `open_palm` / `fist` / `thumbs_up` / `other`
+- `gesture` — `open_palm` / `fist` / `thumbs_up` / `pinch` / `other`
 - `pan` — 1 while panning; `clutch` — 1 while a fist/thumbs-up is held;
   `partial` — 1 when a palm landmark left the frame (discrete actions blocked)
 - `speed` — real translational palm speed (norm/s); `stat` — 1 when it has been
@@ -120,6 +139,9 @@ dbg shutter=open lofi=62 | gesture=open_palm pan=1 clutch=0 partial=0 speed=0.35
   `thumb` — 1 on a thumbs-up pose; `th` — seconds held in `thumbs_pending`
 - `raw` / `filt` — palm-base position before / after the EMA;
   `dxy` — the pan delta sent this frame (logical px); `outl` — 1 on a rejected spike
+- `pinch` — `idle` / `pending` / `grabbed` / `released` / `blocked` (confirmed but
+  no valid focused window); `r` — `pinch_ratio`. When `grabbed`: `addr` (last 6 of
+  the grabbed window), `gxy` (screen px moved since grab), `wxy` (world position)
 
 It also tries a preview window (needs XWayland; metrics print regardless).
 
@@ -134,6 +156,11 @@ It also tries a preview window (needs XWayland; metrics print regardless).
 - mosaic: fist (`mosaic=fist_armed`), thumb up (`thumb=1`,
   `mosaic=thumbs_pending`); if `thumb` stays 0, lower
   `mosaic_gesture.thumb_direction_threshold`
+- pinch: bring thumb + index together, read `r` — it should fall well below
+  `pinch.close_ratio` (~0.15–0.30); fingers apart it should sit above
+  `open_ratio`. If it never grabs, raise `close_ratio`; if it grabs by accident,
+  lower it. Window too twitchy → lower `pinch.move_smoothing`; too laggy → raise
+  it. `pinch=blocked` means there was no valid focused floating window.
 
 ## Config
 
@@ -143,5 +170,6 @@ Nothing is tuned to a specific screen; deltas are relative and normalised.
 
 ## Not yet (later passes, if the basic tracking is reliable)
 
-pinch-grab a window · two-hand resize · pointing at windows · multi-monitor
-hand targeting · complex gestures.
+pinch-grab **v2** (point the hand at a window to pick it — virtual pointer /
+spatial hit-test, instead of always the focused one) · two-hand resize ·
+multi-monitor hand targeting · complex gestures.

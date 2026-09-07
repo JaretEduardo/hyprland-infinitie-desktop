@@ -436,6 +436,31 @@ window. No screenshots, no extra daemon, no continuous polling.
   and the map composes `at + camera[window's ws]`, windows from every monitor
   land on one map in one coordinate space. Nothing is per-monitor: no per-monitor
   camera, no per-monitor hand control. (Pan behaviour is unchanged.)
+- **Adaptive displays / hotplug** (`scripts/infinite-desktop/display_manager.py`,
+  wired from `config/hypr/lua/display.lua`). A workspace does not belong to a
+  monitor. When a workspace changes monitor — Hyprland's auto-relocation on
+  unplug, or an explicit `hl.dsp.workspace.move` — Hyprland **translates that
+  workspace's windows by the monitor-origin delta** (verified), so they stay
+  viewport-consistent on the new screen; but `worldX = at.x + camera.x` then
+  drifts by that delta because `camera.json` was not touched. On
+  `monitor.removed` → `display_manager.py sync` bumps `camera.json` by the
+  inverse of the delta for every workspace now on a different monitor (and forces
+  a truly-orphaned workspace onto a survivor first — `hl.dsp.workspace.move`;
+  `hyprctl keyword` is rejected by the Lua parser). On `monitor.added` →
+  `restore` moves a workspace back to its saved *home* output and realigns the
+  same way. State (per-output geometry kept even when absent, each workspace's
+  home output and coordinate `frame`) lives in
+  `~/.cache/hyprland-infinitie-desktop/display-state.json`; `frame[ws]` makes
+  `sync` idempotent. The camera realign (`_recam`) runs **only** inside
+  `sync` / `restore` — only when a hotplug actually moved a workspace; never on a
+  plain reload, never for workspace navigation, never by any position policy. It
+  never moves a window itself (Hyprland does the translation), never resets
+  `camera.json`, never deletes a workspace, never changes a
+  mode/scale/position/workspace-assignment (that is Settings, later). The
+  physical layout itself is pinned in `~/.config/hypr/monitors.local.lua` so it
+  survives `hyprctl reload` (the generic `position = "auto"` in `monitors.lua`
+  reshuffles outputs otherwise) — that file pins geometry only, not which
+  workspace shows where.
 - **`world_navigate.py {address|class} <value>`.** Computes the delta that puts
   the target's centre on the usable centre of **the monitor that shows the
   target's workspace** (`_monitor_for_ws`, falls back to the focused monitor),
@@ -549,13 +574,25 @@ computer vision near the evdev daemon). `hand-control {start|stop|toggle|
 status|debug}` — the camera is opened only while `hand_control.py` runs;
 `Super+H` and the navbar `modules/HandButton.qml` toggle it.
 
-First pass, all reusing existing pieces. Gesture vocabulary (priority
-high→low: shutter-closed → fist → partial-hand → pan → tilt → push):
+All reusing existing pieces. Gesture vocabulary (priority high→low:
+shutter-closed → **pinch grab** → fist → partial-hand → pan → tilt):
 
 - **open palm + translate** → pan (`world.py` camera + `hypr_ipc` batch, same
   as touchpad/keyboard). Tracks the palm *base* (wrist + two MCPs) so a tilt
   doesn't jerk it.
-- **fist → CLUTCH** (absolute priority): ends the pan now, cancels the tilt
+- **pinch (thumb + index tip)** → grab the **focused** floating window and move
+  **only it** — `PinchGrab`: `idle → pending → grabbed → released`,
+  `pinch_ratio = dist(4,8) / palm_scale` with hysteresis (`close_ratio` /
+  `open_ratio`) + `confirm_seconds`, and a fist can never arm it. On grab it ends
+  the pan, snapshots the window's screen position and moves it to
+  `base + smoothed_hand_delta × sensitivity` in a one-window `hyprctl` batch —
+  **the camera is never bumped**, nothing else pans, and because `at` is global
+  logical space the window follows across monitors / mixed scales unchanged.
+  Release drops it and invalidates the pseudo-max restore file (same policy as
+  `world_edit.py` / a World Map drag). Spike-rejected (`pan.max_tracking_speed`);
+  a real landmark loss > `grace_seconds` ends the grab cleanly and a new pinch is
+  required. v1 always takes the focused window — no pointing / hit-test yet.
+- **fist → CLUTCH** (priority below pinch): ends the pan now, cancels the tilt
   candidate, and on release the current hand position becomes the new pan
   baseline — the physical "clutch" to recolocate the hand without moving the
   desktop.
@@ -572,12 +609,14 @@ high→low: shutter-closed → fist → partial-hand → pan → tilt → push):
   near-upright rest pose; `confirm` + `cooldown` + return-to-neutral.
 
 **No gesture uses finger count** (a finger leaving the frame at an edge makes
-false triggers); tilt uses stable wrist/MCP landmarks and the mosaic needs the
-deliberate fist→thumbs sequence. A **partial hand** (a palm landmark off-frame)
-blocks all discrete actions but not the pan or the clutch. The pan uses an
-adaptive EMA + isolated-spike rejection (`max_tracking_speed`) and rides out a
-1–2 frame dropout. All timings are in **seconds** (real rate ~15–18 fps). Mirror
-is applied exactly once.
+false triggers); tilt uses stable wrist/MCP landmarks, the mosaic needs the
+deliberate fist→thumbs sequence, and the pinch uses a scale-normalised thumb/
+index distance. A **partial hand** (a palm landmark off-frame) blocks all
+discrete actions but not the pan or the clutch; while a pinch grab is active pan,
+tilt, mosaic and clutch are all suppressed. The pan uses an adaptive EMA +
+isolated-spike rejection (`max_tracking_speed`) and rides out a 1–2 frame
+dropout. All timings are in **seconds** (real rate ~15–18 fps). Mirror is applied
+exactly once.
 
 **Shutter-aware.** The privacy shutter has no signal on Linux, so it is inferred
 from the stream — low variance + low texture + temporal stability, multi-metric

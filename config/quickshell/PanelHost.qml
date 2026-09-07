@@ -12,6 +12,14 @@
 // HyprlandFocusGrab. A short opacity+slide transition (~160 ms) makes the panel
 // feel like an extension of the island rather than a separate window.
 //
+// A host exists per monitor (Variants) but only the FOCUSED monitor's host goes
+// `live`: it renders the card, holds the one HyprlandFocusGrab, and claims
+// Exclusive keyboard focus. With every host live (the old behaviour) two focus
+// grabs raced on a dual-monitor setup and, because OnDemand windows never hold
+// keyboard focus, the grab fired onCleared the instant the panel opened — it
+// flashed open and shut ("click, nothing happens"). One live host fixes that
+// and also means one panel instance = no doubled /proc or nvidia polling.
+//
 // Overlay semantics: full-screen transparent window, ExclusionMode.Ignore, so
 // it never reserves space or pushes tiled windows — it floats over them.
 import QtQuick
@@ -34,6 +42,9 @@ Scope {
             id: host
             required property var modelData
             screen: modelData
+            readonly property bool primary:
+                Hyprland.focusedMonitor && Hyprland.focusedMonitor.name === modelData.name
+            readonly property bool live: host.wantOpen && host.primary
 
             // what is actually mounted — lags `scope.panel` so the close
             // transition can play out before the panel is torn down.
@@ -45,7 +56,7 @@ Scope {
             // OnDemand: no keyboard grab until something inside is clicked, so
             // the mouse-only panels are unaffected and WallpaperPicker can take
             // arrow keys / type-to-filter once focused.
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+            WlrLayershell.keyboardFocus: host.live ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
             anchors { top: true; left: true; right: true; bottom: true }
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
@@ -58,7 +69,7 @@ Scope {
             }
 
             HyprlandFocusGrab {
-                active: host.wantOpen
+                active: host.live
                 windows: [host]
                 onCleared: scope.requestClose()
             }
@@ -71,6 +82,7 @@ Scope {
 
             Item {
                 id: card
+                visible: host.primary
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: Theme.panelTopY + (host.wantOpen ? 0 : -8)
                 width: slot.implicitWidth
@@ -90,7 +102,7 @@ Scope {
 
                 Loader {
                     id: slot
-                    active: host.mounted !== ""
+                    active: host.mounted !== "" && host.primary
                     focus: true
                     sourceComponent: host.mounted === "controls"      ? controlsC
                                    : host.mounted === "stats"         ? statsC

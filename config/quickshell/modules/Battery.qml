@@ -15,12 +15,14 @@ Row {
     visible: device.ready && device.isLaptopBattery
 
     Text {
+        anchors.verticalCenter: parent.verticalCenter
         font.family: Theme.iconFamily
         font.pixelSize: Theme.iconSize
         color: root.low ? Theme.accent : (root.charging ? Theme.positive : Theme.foreground)
         text: root.charging ? Theme.icon.batteryChg : (root.low ? Theme.icon.batteryLow : Theme.icon.battery)
     }
     Text {
+        anchors.verticalCenter: parent.verticalCenter
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontSizeSmall
         color: root.low ? Theme.accent : Theme.foregroundMuted

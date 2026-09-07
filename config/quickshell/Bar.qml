@@ -79,15 +79,18 @@ Scope {
                 }
 
                 // ---- right: open apps + essential status --------------
+                // every child is explicitly centred on the island's vertical
+                // axis — a Row only positions on X, so an un-anchored child sits
+                // at y=0 (top), which is what made this group ride high.
                 Row {
                     anchors { right: parent.right; rightMargin: 10; verticalCenter: parent.verticalCenter }
                     spacing: Theme.spacingSmall
                     OpenApps { anchors.verticalCenter: parent.verticalCenter }
                     Item { width: 2; height: 1 }
-                    Network {}
-                    Audio { compact: true }
-                    Battery {}
-                    Clock {}
+                    Network { anchors.verticalCenter: parent.verticalCenter }
+                    Audio   { anchors.verticalCenter: parent.verticalCenter; compact: true }
+                    Battery { anchors.verticalCenter: parent.verticalCenter }
+                    Clock   { anchors.verticalCenter: parent.verticalCenter }
                 }
             }
 

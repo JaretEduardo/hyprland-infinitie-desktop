@@ -25,6 +25,7 @@ config | config/hypr/lua/window-edit.lua       | hypr/lua/window-edit.lua
 config | config/hypr/lua/laptop.lua            | hypr/lua/laptop.lua
 config | config/hypr/lua/autostart.lua         | hypr/lua/autostart.lua
 config | config/hypr/lua/infinite-desktop.lua  | hypr/lua/infinite-desktop.lua
+config | config/hypr/lua/display.lua           | hypr/lua/display.lua
 
 # hypridle / hyprlock search $XDG_CONFIG_HOME/hypr/ themselves, so these live
 # there too, per-file like everything else above (see docs/POWER.md).

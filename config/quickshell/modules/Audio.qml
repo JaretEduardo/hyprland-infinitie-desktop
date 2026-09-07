@@ -28,6 +28,7 @@ MouseArea {
         id: row
         spacing: Theme.gap
         Text {
+            anchors.verticalCenter: parent.verticalCenter
             font.family: Theme.iconFamily
             font.pixelSize: Theme.iconSize
             color: root.micMuted ? Theme.accent : (root.muted ? Theme.foregroundMuted : Theme.foreground)
@@ -38,6 +39,7 @@ MouseArea {
                 : Theme.icon.volLow
         }
         Text {
+            anchors.verticalCenter: parent.verticalCenter
             visible: root.haveSink && !root.muted && !root.compact
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeSmall

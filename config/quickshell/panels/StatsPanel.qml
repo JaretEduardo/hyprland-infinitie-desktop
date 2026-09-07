@@ -31,8 +31,22 @@ Rectangle {
             color: Theme.foreground
         }
 
-        StatBar { label: "CPU";    glyph: Theme.icon.cpu; value: sys.cpuPercent }
-        StatBar { label: "Memory"; glyph: Theme.icon.mem; value: sys.memPercent }
+        StatBar {
+            label: "CPU"; glyph: Theme.icon.cpu
+            ready: sys.cpuReady
+            value: sys.cpuPercent
+            valueText: sys.cpuReady ? sys.cpuPercent + "%" : "—"
+        }
+        StatBar {
+            label: "Memory"; glyph: Theme.icon.mem
+            ready: sys.memReady
+            value: sys.memPercent
+            valueText: sys.memReady ? sys.memPercent + "%" : "—"
+            detail: sys.memReady
+                ? (sys.memUsedKib / 1048576).toFixed(1) + " / "
+                  + (sys.memTotalKib / 1048576).toFixed(1) + " GiB"
+                : ""
+        }
 
         Rectangle { width: parent.width; height: 1; color: Theme.withAlpha(Theme.border, 0.4); visible: gpu.present }
 
@@ -45,19 +59,29 @@ Rectangle {
             Row {
                 spacing: Theme.spacingSmall
                 Text {
+                    anchors.verticalCenter: parent.verticalCenter
                     font.family: Theme.iconFamily; font.pixelSize: Theme.iconSize
-                    color: gpu.activeUnderEco ? Theme.accent : Theme.foregroundMuted
+                    color: (gpu.nvState === "COMPUTE" || gpu.nvState === "DISPLAY")
+                           ? Theme.accent : Theme.foregroundMuted
                     text: Theme.icon.gpu
                 }
                 Text {
+                    anchors.verticalCenter: parent.verticalCenter
                     font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize
                     color: Theme.foreground
-                    text: "NVIDIA · " + gpu.policy.toUpperCase()
+                    text: "NVIDIA · " + gpu.nvState
                 }
                 Rectangle {
-                    width: 7; height: 7; radius: 3.5; y: 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 7; height: 7; radius: 3.5
                     color: gpu.dotColor
                 }
+            }
+            Text {
+                visible: gpu.displayRequired
+                font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                color: Theme.accentSoft; wrapMode: Text.WordWrap; width: parent.width
+                text: "Required by " + gpu.nvidiaOutput + " — leave it awake"
             }
             Text {
                 visible: gpu.deep !== null
@@ -101,9 +125,12 @@ Rectangle {
         id: sb
         property string label
         property string glyph
+        property string detail: ""          // small dim line under the label
         property int value: 0
+        property bool ready: true            // false -> "—", empty meter
+        property string valueText: sb.value + "%"
         width: parent ? parent.width : 0
-        height: 26
+        height: sb.detail.length > 0 ? 34 : 26
 
         Text {
             id: g
@@ -113,35 +140,47 @@ Rectangle {
             color: Theme.foregroundMuted
             text: sb.glyph
         }
-        Text {
-            id: l
+        Column {
+            id: lbl
             anchors { left: g.right; verticalCenter: parent.verticalCenter }
-            width: 62
-            font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
-            color: Theme.foreground
-            text: sb.label
+            width: 96
+            spacing: 1
+            Text {
+                font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                color: Theme.foreground
+                text: sb.label
+            }
+            Text {
+                visible: sb.detail.length > 0
+                font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall - 2
+                color: Theme.foregroundMuted
+                text: sb.detail
+            }
         }
         Rectangle {
             id: track
-            anchors { left: l.right; right: v.left; rightMargin: 10; verticalCenter: parent.verticalCenter }
+            anchors { left: lbl.right; right: v.left; rightMargin: 10; verticalCenter: parent.verticalCenter }
             height: 6
             radius: 3
             color: Theme.surface
             Rectangle {
-                width: Math.round(parent.width * Math.max(0, Math.min(1, sb.value / 100)))
+                width: sb.ready
+                    ? Math.round(parent.width * Math.max(0, Math.min(1, sb.value / 100)))
+                    : 0
                 height: parent.height
                 radius: parent.radius
                 color: sb.value >= 85 ? Theme.urgent : Theme.accent
+                Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
             }
         }
         Text {
             id: v
             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-            width: 38
+            width: 42
             horizontalAlignment: Text.AlignRight
             font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
             color: Theme.foregroundMuted
-            text: sb.value + "%"
+            text: sb.valueText
         }
     }
 

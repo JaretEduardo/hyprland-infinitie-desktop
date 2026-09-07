@@ -10,12 +10,14 @@ Row {
     SystemClock { id: clock; precision: SystemClock.Minutes }
 
     Text {
+        anchors.verticalCenter: parent.verticalCenter
         font.family: Theme.iconFamily
         font.pixelSize: Theme.iconSize
         color: Theme.foregroundMuted
         text: Theme.icon.clock
     }
     Text {
+        anchors.verticalCenter: parent.verticalCenter
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.foreground

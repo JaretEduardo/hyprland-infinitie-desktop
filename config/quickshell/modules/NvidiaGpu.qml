@@ -9,6 +9,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import "root:/"
 
 Item {
@@ -42,11 +43,35 @@ Item {
     readonly property bool backendUnresolved: backend === "auto" || backend === "none"
     readonly property bool activeUnderEco: policy === "eco" && runtimePm === "active"
 
+    // An output that this laptop wires to the dGPU (every non-eDP connector).
+    // If one is connected AND the GPU is awake, the GPU is awake FOR DISPLAY —
+    // suggesting ECO would be misleading.
+    readonly property string nvidiaOutput: {
+        const ms = Hyprland.monitors ? Hyprland.monitors.values : [];
+        for (let i = 0; i < ms.length; i++)
+            if (ms[i].name && ms[i].name.indexOf("eDP") !== 0) return ms[i].name;
+        return "";
+    }
+
+    // ECO      GPU suspended / D3cold (nothing needs it)
+    // COMPUTE  awake by an intentional compute policy
+    // DISPLAY  awake because a physical output depends on it
+    // ACTIVE   awake under an eco policy with no obvious reason (rare)
+    readonly property string nvState:
+          !present                       ? "—"
+        : runtimePm === "suspended"      ? "ECO"
+        : d3coldConfirmed                ? "ECO"
+        : policy === "compute"           ? "COMPUTE"
+        : nvidiaOutput.length > 0        ? "DISPLAY"
+        : runtimePm === "active"         ? "ACTIVE"
+        : "ECO"
+    readonly property bool displayRequired: nvState === "DISPLAY"
+
     readonly property color dotColor:
-          !present                       ? Theme.foregroundMuted
-        : policy === "compute"           ? Theme.accent
-        : runtimePm === "suspended"      ? Theme.positive
-        : activeUnderEco                 ? Theme.accent
+          !present                    ? Theme.foregroundMuted
+        : nvState === "COMPUTE"       ? Theme.accent
+        : nvState === "DISPLAY"       ? Theme.accent
+        : nvState === "ECO"           ? Theme.positive
         : Theme.foregroundMuted
 
     function refresh(deep) {
@@ -128,7 +153,8 @@ Item {
             spacing: Theme.gap
             Text {
                 font.family: Theme.iconFamily; font.pixelSize: Theme.iconSize
-                color: root.activeUnderEco ? Theme.accent : Theme.foregroundMuted
+                color: (root.nvState === "COMPUTE" || root.nvState === "DISPLAY")
+                       ? Theme.accent : Theme.foregroundMuted
                 text: Theme.icon.gpu
             }
             Rectangle {
@@ -172,10 +198,16 @@ Item {
                 }
 
                 Text { color: Theme.foreground; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize
-                       text: "Policy: " + root.policy.toUpperCase()
+                       text: "State: " + root.nvState
+                             + (root.nvState !== "COMPUTE" && root.policy === "compute"
+                                ? "  (policy: compute)" : "")
                              + (root.backendUnresolved ? "  (backend unresolved)" : "") }
+                Text { visible: root.displayRequired
+                       color: Theme.accentSoft; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                       text: "Required by " + root.nvidiaOutput + " — do not disable" }
                 Text { color: Theme.foregroundMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
-                       text: "Runtime: " + root.runtimePm + "   ·   PCI: " + root.pciPower
+                       text: "Policy: " + root.policy + "   ·   Runtime: " + root.runtimePm
+                             + "   ·   PCI: " + root.pciPower
                              + (root.d3coldConfirmed ? " (confirmed)" : "") }
                 Text { visible: root.driver.length > 0
                        color: Theme.foregroundMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall

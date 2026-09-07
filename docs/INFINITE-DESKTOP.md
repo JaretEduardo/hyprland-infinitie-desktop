@@ -181,7 +181,21 @@ needs a camera offset: `worldX = window.at.x + camera.x`.
   preserved), focuses it, then bumps the camera. `class` mode cycles a
   multi-window app on repeated calls (`cycle.json`). A `.navigate.lock` `flock`
   serialises concurrent calls. Called by the Quickshell World Map
-  (`config/quickshell/WorldMap.qml`) and the navbar's open-app icons.
+  (`config/quickshell/WorldMap.qml`) and the navbar's open-app icons /
+  `Super+Alt+1..9` (`OpenAppsModel.qml` → `qs ipc call openapps …`).
+- **`world_navigate.py next-window | prev-window`** (`Super+Alt+Tab` /
+  `Super+Alt+Shift+Tab`): if a Viewport Mosaic is active it delegates to
+  `viewport_mosaic.py next/prev` (pure `focuswindow`, no camera); otherwise it
+  spatially navigates to the next / previous *individual* window on the
+  workspace, in stable world reading order — so three Foot windows are three
+  separate stops, not one "Foot" group.
+- **`viewport_mosaic.py {toggle|status|next|prev}`** — the Viewport Mosaic
+  (Super+M). `toggle` snapshots the world geometry of the windows visible in
+  the viewport, arranges them into a floating grid in one batch, and restores
+  them exactly (through the current camera) on the next call; `.mosaic.lock`
+  flock, atomic snapshot at `viewport-mosaic-<ws>.json`. Nothing is tiled, the
+  camera is never touched, pseudo-max state is left alone. See ARCHITECTURE.md
+  "Viewport Mosaic".
 - **`world_edit.py geometry <addr> <worldX> <worldY> <w> <h>`** (also `move` /
   `resize`) applies a World Map drag / resize-handle edit: reads `camera.json`,
   converts `screen = world − camera` for the window's workspace, moves + resizes
@@ -507,4 +521,5 @@ run `sudo`/`usermod`.
 | `world.py` | per-workspace camera offset (`camera.json`, `flock` + atomic write); shared by the daemon and the navigate scripts (section 2.5) |
 | `world_navigate.py` | fly the camera to a window / cycle an app's windows; called by the Quickshell World Map and navbar (section 2.5) |
 | `world_edit.py` | apply a World Map move / resize (world→screen, one batch, camera untouched, drops pseudo-max state); section 2.5 |
+| `viewport_mosaic.py` | Viewport Mosaic (Super+M): snapshot world geometry, arrange a temporary floating grid, restore exactly; also `next`/`prev` focus within it; section 2.5 |
 | `discover_hyprland_api.sh` | diagnostic/probing script for the `hl.dsp.window.*` API — moves/resizes the focused window (section 5) |

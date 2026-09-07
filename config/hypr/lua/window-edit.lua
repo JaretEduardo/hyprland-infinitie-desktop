@@ -82,3 +82,34 @@ for _, btn in ipairs({ "mouse:272", "mouse:273" }) do
     hl.bind(mod .. " + " .. btn, function() drop_pmax_under_cursor() end,
             { non_consuming = true })
 end
+
+-- ---- Viewport Mosaic + keyboard window navigation -------------------
+--   SUPER + M                  → toggle the Viewport Mosaic (a temporary tidy
+--                                layout of the windows in the viewport;
+--                                scripts/infinite-desktop/viewport_mosaic.py).
+--                                Nothing is tiled, the camera never moves.
+--   SUPER + ALT + Tab          → next individual WINDOW. While a mosaic is up:
+--   SUPER + ALT + SHIFT + Tab  → prev — pure focus move across the mosaic, no
+--                                camera. Otherwise: spatial navigation over
+--                                every window (each Foot is its own stop).
+--   SUPER + ALT + 1 .. 9       → the Nth navbar app icon (grouped by app;
+--                                repeat cycles that app's windows). Quickshell
+--                                owns that list (OpenAppsModel.qml) — NO class
+--                                names here.
+--
+-- Every bind arms the SUPER-tap guard, so releasing SUPER after the combo
+-- never opens the launcher.
+local function guarded_exec(cmd)
+    return function()
+        guard_bump()
+        hl.dispatch(hl.dsp.exec_cmd(cmd))
+    end
+end
+
+hl.bind(mod .. " + M", guarded_exec("python3 ~/scripts/viewport_mosaic.py toggle"))
+
+hl.bind(mod .. " + ALT + Tab",         guarded_exec("python3 ~/scripts/world_navigate.py next-window"))
+hl.bind(mod .. " + ALT + SHIFT + Tab", guarded_exec("python3 ~/scripts/world_navigate.py prev-window"))
+for i = 1, 9 do
+    hl.bind(mod .. " + ALT + " .. i, guarded_exec("qs ipc call openapps activate " .. i))
+end

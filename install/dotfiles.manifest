@@ -52,6 +52,7 @@ config | config/xdg-desktop-portal/hyprland-portals.conf | xdg-desktop-portal/hy
 # stay real directories for future machine-local additions.
 config | config/quickshell/shell.qml               | quickshell/shell.qml
 config | config/quickshell/Theme.qml                | quickshell/Theme.qml
+config | config/quickshell/OpenAppsModel.qml        | quickshell/OpenAppsModel.qml
 config | config/quickshell/Bar.qml                  | quickshell/Bar.qml
 config | config/quickshell/Wallpaper.qml            | quickshell/Wallpaper.qml
 config | config/quickshell/DiagonalWallpaperTransition.qml | quickshell/DiagonalWallpaperTransition.qml
@@ -64,6 +65,7 @@ config | config/quickshell/panels/NotificationsPanel.qml | quickshell/panels/Not
 config | config/quickshell/panels/WallpaperPicker.qml    | quickshell/panels/WallpaperPicker.qml
 config | config/quickshell/modules/Workspaces.qml   | quickshell/modules/Workspaces.qml
 config | config/quickshell/modules/WorldButton.qml  | quickshell/modules/WorldButton.qml
+config | config/quickshell/modules/MosaicButton.qml | quickshell/modules/MosaicButton.qml
 config | config/quickshell/modules/OpenApps.qml     | quickshell/modules/OpenApps.qml
 config | config/quickshell/modules/ActiveWindow.qml | quickshell/modules/ActiveWindow.qml
 config | config/quickshell/modules/Clock.qml        | quickshell/modules/Clock.qml

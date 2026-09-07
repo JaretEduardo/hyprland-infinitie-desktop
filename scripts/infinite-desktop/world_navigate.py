@@ -10,6 +10,13 @@ relative layout of the whole canvas is preserved, and updates the camera offset
     world_navigate.py address 0x559...        pan to that window, focus it
     world_navigate.py class    firefox        pan to a window of that class;
                                               repeated calls cycle its windows
+    world_navigate.py next-window             focus+centre the next individual
+    world_navigate.py prev-window             window on the workspace (each Foot
+                                              is its own destination). While a
+                                              Viewport Mosaic is active this
+                                              instead just moves focus between
+                                              the mosaic windows — no camera,
+                                              no window move (viewport_mosaic.py).
 
 No root, no polling. Installed to ~/scripts by `install.sh infinite-desktop`.
 """
@@ -186,14 +193,90 @@ def _navigate_class(cls):
     _save_cycle(cyc)
 
 
+_MOSAIC_DIR = _RUN_DIR
+_SKIP_TITLE = ("Picture-in-Picture", "Picture in Picture", "Sharing Indicator")
+
+
+def _current_ws():
+    try:
+        r = subprocess.run(["hyprctl", "activewindow", "-j"],
+                           capture_output=True, text=True, timeout=1)
+        w = json.loads(r.stdout)
+        ws = (w.get("workspace") or {}).get("id")
+        if ws:
+            return ws
+    except Exception:
+        pass
+    try:
+        mons = json.loads(subprocess.run(["hyprctl", "monitors", "-j"],
+                          capture_output=True, text=True, timeout=1).stdout)
+        m = next((x for x in mons if x.get("focused")), mons[0])
+        return (m.get("activeWorkspace") or {}).get("id", 1)
+    except Exception:
+        return 1
+
+
+def _individual_windows(ws):
+    """Every 'normal' floating window on `ws`, in stable world reading order."""
+    cam = world.read_camera(ws)
+    cx, cy = cam.get("x", 0.0), cam.get("y", 0.0)
+    out = []
+    for c in _clients():
+        if (c.get("workspace") or {}).get("id") != ws:
+            continue
+        if not c.get("mapped") or not c.get("floating") or c.get("fullscreen"):
+            continue
+        title = c.get("title") or ""
+        cls = (c.get("initialClass") or c.get("class") or "")
+        if any(t in title for t in _SKIP_TITLE):
+            continue
+        if cls.startswith("xdg-desktop-portal") or cls.startswith("org.freedesktop.impl.portal"):
+            continue
+        aw, ah = c["size"]
+        if aw < 200 or ah < 150:
+            continue
+        out.append((c, c["at"][0] + cx, c["at"][1] + cy))
+    out.sort(key=lambda e: (round(e[2] / 120.0), e[1]))   # world reading order
+    return [e[0] for e in out]
+
+
+def _navigate_window_cycle(direction):
+    ws = _current_ws()
+    snap = os.path.join(_MOSAIC_DIR, "viewport-mosaic-%s.json" % ws)
+    if os.path.exists(snap):
+        # mosaic mode: pure focus move, keep the whole mosaic on screen
+        here = os.path.dirname(os.path.realpath(__file__))
+        subprocess.run(["python3", os.path.join(here, "viewport_mosaic.py"),
+                        "next" if direction > 0 else "prev"], timeout=4)
+        return
+    # normal mode: spatial navigation over individual windows
+    clients = _clients()
+    wins = _individual_windows(ws)
+    if not wins:
+        return
+    try:
+        cur = json.loads(subprocess.run(["hyprctl", "activewindow", "-j"],
+                         capture_output=True, text=True, timeout=1).stdout).get("address")
+    except Exception:
+        cur = None
+    addrs = [w["address"] for w in wins]
+    idx = addrs.index(cur) if cur in addrs else (0 if direction > 0 else -1)
+    tgt = wins[(idx + direction) % len(wins)]
+    with _NavLock():
+        _pan_to(tgt, clients)
+        dispatch(focus_window_lua(tgt["address"]))
+
+
 def main():
-    if len(sys.argv) < 3:
-        print("usage: world_navigate.py {address|class} <value>", file=sys.stderr)
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
+    if mode in ("next-window", "prev-window"):
+        _navigate_window_cycle(1 if mode == "next-window" else -1)
+        return 0
+    if len(sys.argv) < 3 or mode not in ("address", "class"):
+        print("usage: world_navigate.py {address <addr>|class <name>|"
+              "next-window|prev-window}", file=sys.stderr)
         return 2
-    mode, value = sys.argv[1], sys.argv[2]
-    if mode not in ("address", "class"):
-        print("unknown mode: " + mode, file=sys.stderr)
-        return 2
+    value = sys.argv[2]
     with _NavLock():
         if mode == "address":
             _navigate_address(value)

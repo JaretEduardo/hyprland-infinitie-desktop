@@ -146,7 +146,7 @@ pcall-free.
 | `appearance.lua` | gaps / rounding / blur / shadow / animations (static); border + shadow **colours** come from `~/.config/hypr/colors.local.lua` (wallpaper-driven, with a built-in fallback) |
 | `bindings.lua` | basic desktop keybinds; `Super+Return` → `$TERMINAL` (falls back to `foot`); **`Super` tap** and `Super+Space` → native Quickshell launcher (`qs ipc call launcher toggle`); `Super+Shift+Space` → `fuzzel` (fallback); `Super+W` → wallpaper picker; `Super+Tab` → World Map (`qs ipc call worldmap toggle`; Alt+Tab is not bound); `Super`+LMB/RMB drag → move/resize the floating window; `Print` / `Super+Print` / `Super+Shift+S` → `hypr-screenshot` (see README "Keybindings"). The `Super` tap is `release = true` on `Super_L`, so it does **not** fire when `Super` was part of a key combo; `lua/window-edit.lua` re-binds it with a guard so a `Super`+mouse drag doesn't fire it either. |
 | `floating-world.lua` | the window model — every normal window opens **floating**, smart-sized, placed near the last-focused window (see below). Re-binds `Super+F` → pseudo-maximize; `Super+Shift+F` → real fullscreen. |
-| `window-edit.lua` | `Super`+LMB/RMB move/resize coherence: the SUPER-tap-vs-launcher guard, and dropping a window's pseudo-max restore state on a hand edit. Loaded after `floating-world.lua`. |
+| `window-edit.lua` | `Super`+LMB/RMB move/resize coherence: the SUPER-tap-vs-launcher guard, dropping a window's pseudo-max restore state on a hand edit, `Super+M` (Viewport Mosaic), `Super+Alt+Tab` (individual-window nav / mosaic focus cycle) and `Super+Alt+1..9` (navbar app groups). No class names in Lua. Loaded after `floating-world.lua`. |
 | `laptop.lua` | XF86 volume/mic/brightness/media keybinds (`wpctl`/`brightnessctl`/`playerctl`) |
 | `autostart.lua` | environment import; polkit agent (`hyprpolkitagent.service`, user unit); `mako` (notifications); Quickshell; `hypridle` — each guarded so a reload never double-spawns |
 | `infinite-desktop.lua` | Infinite Desktop autostart + keybinds; the only seam to that component. Loaded last; `hl.unbind`s + rebinds `SUPER + arrows`. |
@@ -179,10 +179,10 @@ symlinks and are never managed or deleted by `install.sh dotfiles`:
 anchored to the top edge only (so wlr-layer-shell centres it), ~48 % of the
 monitor width (capped), ~28 px tall, rounded, translucent, **no exclusive
 zone** (it floats over windows, like the reference rice). Contents are
-deliberately minimal: four panel buttons + workspace indicators (left), the
-**World Map ring** (centre — the entry to the minimap, `modules/WorldButton.qml`),
-and open-app icons (`modules/OpenApps.qml`) · network · audio · battery · clock
-(right).
+deliberately minimal: four panel buttons + workspace indicators + the Viewport
+Mosaic indicator (`modules/MosaicButton.qml`) (left), the **World Map ring**
+(centre — the entry to the minimap, `modules/WorldButton.qml`), and open-app
+icons (`modules/OpenApps.qml`) · network · audio · battery · clock (right).
 
 `shell.qml` owns one string, `panel`
 (`"" | controls | stats | notifications | wallpapers`).
@@ -204,6 +204,10 @@ apps from `DesktopEntries` (real icons, fuzzy search) and launches via
 `WorldMap.qml` is likewise a separate overlay — the Infinite Desktop minimap,
 toggled by the navbar's centre ring or `Super+Tab` (`worldmap` `IpcHandler`).
 See [Infinite Navigation](#infinite-navigation--the-world-map).
+
+`OpenAppsModel.qml` is a **singleton** — the single source of the navbar's
+open-app list, so `modules/OpenApps.qml` (mouse) and the `openapps` `IpcHandler`
+(`Super+Alt` keys) navigate the exact same groups in the same order.
 
 ### Wallpaper-driven theming
 
@@ -458,9 +462,15 @@ window. No screenshots, no extra daemon, no continuous polling.
   applies the client's own size hints.
 - **Navbar.** `modules/WorldButton.qml` is the centre ring (active while the map
   is open, tooltip "World Map"). `modules/OpenApps.qml` is a compact row of
-  open-app icons grouped by class (Quickshell / launcher / hyprlock excluded),
-  a count badge for multi-window apps; click → `world_navigate.py class <cls>`
-  (navigate, or cycle on repeat).
+  open-app icons — a thin renderer over **`OpenAppsModel.qml`** (a singleton:
+  the one list of app groups, class-grouped, Quickshell / launcher / hyprlock
+  excluded, sorted, one entry per app with a multi-window count badge). Click,
+  and the keyboard shortcuts, both call `OpenAppsModel.activate(n)` /
+  `.step(±1)`, which run `world_navigate.py class <cls>` — camera flight, window
+  cycling on repeat. `shell.qml`'s `openapps` `IpcHandler` exposes
+  `next` / `prev` / `activate <n>`; `lua/window-edit.lua` binds
+  `Super+Alt+Tab` / `Super+Alt+Shift+Tab` / `Super+Alt+1..9` to it (no class
+  names in Lua — the number always matches the visible icon).
 
 ### `lua/window-edit.lua` — desktop-side manipulation + the SUPER-tap guard
 
@@ -480,3 +490,39 @@ adds the coherence around them:
   reads that file fresh on every `SUPER + F`, so a hand-placed geometry becomes
   the window's new "normal" instead of a stale box it snaps back to. Only the
   edited window is affected.
+- **Keyboard window navigation.** `Super+Alt+Tab` / `Super+Alt+Shift+Tab` →
+  `world_navigate.py next-window` / `prev-window`: the next/previous *individual*
+  window (each Foot is its own stop), spatial navigation (camera flight). While
+  a Viewport Mosaic is up it instead moves focus across the mosaic windows —
+  no camera, no move. `Super+Alt+1..9` stays app-level (`qs ipc call openapps
+  activate N`, `OpenAppsModel` singleton, no class names in Lua). `Super+M`
+  toggles the mosaic. Each bind arms the tap guard.
+
+### Viewport Mosaic — `scripts/infinite-desktop/viewport_mosaic.py`
+
+A temporary tidy layout of the windows in the viewport. **Nothing is tiled** —
+every window stays floating, inside the Infinite Desktop, panned by the daemon;
+`Super+M` just does a batch of move+resize, and again to undo.
+
+- **Which windows.** Current workspace, floating, mapped, not fullscreen, not a
+  tiny dialog / PiP / portal, **and a real (≥80 px each axis) intersection with
+  the monitor** — far-off windows never get pulled in.
+- **Snapshot.** Before arranging, each window's `{worldX, worldY, width,
+  height}` (world = `at` + camera) is written atomically to
+  `$XDG_RUNTIME_DIR/infinite-desktop/viewport-mosaic-<ws>.json` (`.mosaic.lock`
+  flock, temp + `os.replace`). World coordinates, so panning the camera while
+  the mosaic is up doesn't move the restore target.
+- **Layout.** 1 → ~94 % centred; 2 → 50/50; 3 → one big left + two stacked
+  right; 4 → 2×2; 5–6 → 3×2; 7–9 → 3×3; more → `ceil(√n)` rows. 10 px gaps,
+  10 px outer margin, 44 px reserved at the top for the navbar island.
+- **Restore.** `Super+M` again → each still-living window back to its snapshot
+  world geometry (converted through the *current* camera), then the file is
+  deleted. Closed windows are skipped; windows opened after are left alone; a
+  window edited by hand meanwhile still restores to its pre-mosaic geometry
+  (the mosaic is a temporary mode).
+- **Pseudo-maximize** is a separate store (`hypr-fworld/<addr>`) and is never
+  touched — a pseudo-maximized window survives a mosaic round-trip.
+- The navbar's `modules/MosaicButton.qml` (a 2×2 grid glyph, left group) lights
+  up while a mosaic is active — it watches the snapshot file. The World Map
+  naturally shows the mosaic positions while active and the original spread
+  after restore (it reads live geometry; nothing special needed).

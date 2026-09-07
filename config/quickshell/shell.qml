@@ -53,6 +53,16 @@ ShellRoot {
         function close(): void { worldMap.close(); }
     }
 
+    // qs ipc call openapps next | prev | activate <n>   (Super+Alt+Tab /
+    // Super+Alt+Shift+Tab / Super+Alt+1..9, see lua/window-edit.lua). Drives the
+    // navbar's open-app row (OpenAppsModel.qml) — same list, same order.
+    IpcHandler {
+        target: "openapps"
+        function next(): void            { OpenAppsModel.step(1); }
+        function prev(): void            { OpenAppsModel.step(-1); }
+        function activate(index: int): void { OpenAppsModel.activate(index); }
+    }
+
     // backward-compatible alias: the old "dashboard" target -> controls panel
     IpcHandler {
         target: "dashboard"

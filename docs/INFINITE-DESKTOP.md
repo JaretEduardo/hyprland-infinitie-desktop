@@ -165,7 +165,13 @@ works with no Quickshell running.
 ### 2.5 World coordinates and the World Map
 
 The daemon pans by physically moving windows, so a stable per-window coordinate
-needs a camera offset: `worldX = window.at.x + camera.x`.
+needs a camera offset: `worldX = window.at.x + camera.x` (`window.at` is already
+**global** logical space — the monitor layout offset is included).
+
+Multi-monitor: the monitors are physical viewports onto one shared world, not
+separate desktops. Each shows its own workspace with its own camera; the World
+Map composes `at + camera[window's ws]` so windows from every monitor land on one
+map. No per-monitor camera, no per-monitor hand control — pan is unchanged.
 
 - **`world.py`** owns `camera.json` — one `{x,y}` per workspace, under
   `$XDG_RUNTIME_DIR/infinite-desktop/`, `flock`-guarded, written atomically
@@ -177,8 +183,9 @@ needs a camera offset: `worldX = window.at.x + camera.x`.
   optional, so an older deploy without `world.py` still runs.
 - **`world_navigate.py {address|class} <value>`** flies the camera to a window:
   it steps *every* floating window on the workspace by the delta that centres
-  the target (`_smoothstep`, 11 frames — the same pan mechanism, whole layout
-  preserved), focuses it, then bumps the camera. `class` mode cycles a
+  the target on **the monitor showing that workspace** (`_monitor_for_ws`)
+  (`_smoothstep`, 11 frames — the same pan mechanism, whole layout preserved),
+  focuses it, then bumps the camera. `class` mode cycles a
   multi-window app on repeated calls (`cycle.json`). A `.navigate.lock` `flock`
   serialises concurrent calls. Called by the Quickshell World Map
   (`config/quickshell/WorldMap.qml`) and the navbar's open-app icons /
@@ -206,8 +213,11 @@ needs a camera offset: `worldX = window.at.x + camera.x`.
   the unchanged axis through, so a move-only or resize-only edit is still one
   call — and previews entirely in QML, so there is no process per mouse-move.
 
-The World Map reads `camera.json` (watched) + `hyprctl` toplevel geometry and is
-event-driven (`rawEvent` + a 130 ms timer only while it is open). It is a
+The World Map reads `camera.json` (watched) + `hyprctl` toplevel geometry +
+`Hyprland.monitors` (all enabled outputs) and is event-driven (`rawEvent` —
+window *and* monitor/workspace events — + a 130 ms timer while open, plus a 1 s
+`refreshMonitors()` beat for output-layout changes). It shows the union of every
+monitor's active workspace and draws one viewport rectangle per monitor. It is a
 Quickshell overlay; the daemon has no knowledge of it.
 
 ### 2.6 Input device access

@@ -422,33 +422,48 @@ window. No screenshots, no extra daemon, no continuous polling.
 
 - **World coordinates.** The Infinite Desktop daemon pans by *physically moving
   every floating window*, so a stable coordinate needs a camera offset:
-  `worldX = window.at.x + camera.x`. `scripts/infinite-desktop/world.py` owns
-  `camera.json` (per workspace, under `$XDG_RUNTIME_DIR/infinite-desktop/`,
-  `flock` + atomic `os.replace`, no reboot persistence). Every code path that
-  pans — the daemon's `pan_other_windows` and main loop, `move_window.py`'s
-  edge-push, `navigate_windows.py`, `world_navigate.py` — calls
-  `world.bump_camera(ws, -dx, -dy)` right after moving windows, so world
-  positions stay put while the viewport slides.
+  `worldX = window.at.x + camera.x` (`window.at` from Hyprland is already
+  **global** logical space — the monitor's layout offset is baked in).
+  `scripts/infinite-desktop/world.py` owns `camera.json` (per workspace, under
+  `$XDG_RUNTIME_DIR/infinite-desktop/`, `flock` + atomic `os.replace`, no reboot
+  persistence). Every code path that pans — the daemon's `pan_other_windows` and
+  main loop, `move_window.py`'s edge-push, `navigate_windows.py`,
+  `world_navigate.py` — calls `world.bump_camera(ws, -dx, -dy)` right after
+  moving windows, so world positions stay put while the viewport slides.
+- **Multi-monitor.** The monitors are **not** independent desktops — they are
+  physical viewports onto the *same* world. Each monitor shows its own active
+  workspace and each workspace keeps its own camera, but because `at` is global
+  and the map composes `at + camera[window's ws]`, windows from every monitor
+  land on one map in one coordinate space. Nothing is per-monitor: no per-monitor
+  camera, no per-monitor hand control. (Pan behaviour is unchanged.)
 - **`world_navigate.py {address|class} <value>`.** Computes the delta that puts
-  the target's centre on the monitor's usable centre, then steps *every*
-  floating window on the workspace by that delta (`_smoothstep`, 11 frames) —
-  the exact pan mechanism, whole layout preserved — then focuses the target,
-  then bumps the camera. `class` mode cycles a multi-window app on repeated
-  calls (`cycle.json`, 3 s window). An `flock` (`.navigate.lock`) serialises
-  concurrent invocations so a burst of clicks each lands in turn.
+  the target's centre on the usable centre of **the monitor that shows the
+  target's workspace** (`_monitor_for_ws`, falls back to the focused monitor),
+  then steps *every* floating window on the workspace by that delta
+  (`_smoothstep`, 11 frames) — the exact pan mechanism, whole layout preserved —
+  then focuses the target, then bumps the camera. `class` mode cycles a
+  multi-window app on repeated calls (`cycle.json`, 3 s window). An `flock`
+  (`.navigate.lock`) serialises concurrent invocations so a burst of clicks each
+  lands in turn.
 - **`config/quickshell/WorldMap.qml`.** A `Top`-layer overlay (namespace
   `quickshell:worldmap`, blurred via a layer rule in `appearance.lua`). Reads
   window geometry from `Hyprland.toplevels[].lastIpcObject` + `refreshToplevels()`
   (on `rawEvent` open/close/move/title/focus/float, debounced; plus a 130 ms
   timer *only while open* — and paused mid-edit — that refreshes and rebuilds,
   so pan / pseudo-maximize / hand-edit geometry that emits no event still shows,
-  trailing reality by ≈one tick) and the camera from `camera.json` (`FileView`,
-  watched). Draws each window as a proportional rectangle (DesktopEntry icon +
-  class), the focused one accented, and the viewport rectangle (monitor usable
-  area). Auto-fits windows ∪ viewport with a margin; wheel = zoom 0.15×–4× of
-  the fit, drag empty space = pan the *map view* (never the real desktop).
-  Toggled from the navbar's centre ring or `Super+Tab` (`worldmap`
-  `IpcHandler` in `shell.qml`).
+  trailing reality by ≈one tick) and the cameras from `camera.json` (`FileView`,
+  watched). It reads **all** enabled monitors (`Hyprland.monitors`, `x`/`y` from
+  `lastIpcObject`, `refreshMonitors()` on monitor/workspace events + a 1 s beat)
+  and shows the union of every monitor's active workspace — a window is drawn iff
+  its workspace is live on *some* monitor, at `at + camera[its ws]`. Draws each
+  window as a proportional rectangle (DesktopEntry icon + class), the focused one
+  accented, and one subtle **viewport rectangle per monitor** (its logical
+  `width/scale × height/scale` at `monitor.xy + camera`, labelled with the output
+  name when there are several). Auto-fits every viewport ∪ every window with a
+  margin — a global bounding box that handles negative `x`, stacked monitors and
+  mixed scales. Wheel = zoom 0.15×–4× of the fit, drag empty space = pan the
+  *map view* (never the real desktop). Toggled from the navbar's centre ring or
+  `Super+Tab` (`worldmap` `IpcHandler` in `shell.qml`).
 - **Editing windows from the map.** A short click on a window still navigates
   (`world_navigate.py`, map closes). A **drag past ~6 px on the body** moves it;
   selecting a window shows small accent **resize handles** (4 corners + 4 edge

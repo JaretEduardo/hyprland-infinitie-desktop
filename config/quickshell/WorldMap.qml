@@ -6,6 +6,14 @@
 // desktop moves the camera, not the windows' world positions — so on the map
 // the windows stay put and the viewport rectangle slides.
 //
+// MULTI-MONITOR: the monitors are not separate desktops — they are physical
+// viewports onto the SAME world. `client.at` from Hyprland is already GLOBAL
+// logical space, so a window on any monitor maps with
+//     worldX = at.x + camera[that window's workspace].x
+// The map shows the active workspace of EVERY enabled monitor at once (their
+// union), and draws each monitor's viewport rectangle. Cameras stay per
+// workspace exactly as before — nothing here is per-monitor.
+//
 // Click a window → scripts/infinite-desktop/world_navigate.py flies the whole
 // camera to it (same pan mechanism, relative layout preserved), then focuses
 // it, then the map closes. Wheel = zoom the map (0.15×–4× of the auto-fit,
@@ -52,10 +60,6 @@ Scope {
         onLoadFailed: { if (_last !== "") { _last = ""; cams = ({}); rev++; } }
         onFileChanged: reload()
     }
-    function cameraFor(wsId) {
-        const c = camFile.cams[String(wsId)];
-        return c ? { x: c.x, y: c.y } : { x: 0, y: 0 };
-    }
 
     readonly property string navScript:
         Quickshell.env("HOME") + "/scripts/world_navigate.py"
@@ -85,10 +89,60 @@ Scope {
                 Hyprland.focusedMonitor && Hyprland.focusedMonitor.name === modelData.name
 
             // ---- data ------------------------------------------------
-            property int    wsId: Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : 1
-            // camFile.rev in the expression forces re-eval when camera.json reloads
-            property var    cam: (camFile.rev, scope.cameraFor(wsId))
-            property var    wins: []          // {addr, cls, title, wx, wy, w, h, focused}
+            // One world, as many viewports as monitors. Each monitor shows its
+            // own active workspace; each workspace keeps its own camera.
+            property int    monRev: 0
+            function bumpMon() { monRev += 1; }
+
+            // one entry per enabled monitor: its viewport rect in WORLD coords.
+            // Depends on Hyprland.monitors (add/remove), each monitor's
+            // activeWorkspace (ws switch) and camFile.rev (pan) — so it
+            // re-evaluates live on all of those.
+            readonly property var monitors: {
+                monRev;                                   // manual refresh hook
+                const cams = (camFile.rev, camFile.cams);
+                const list = Hyprland.monitors ? Hyprland.monitors.values : [];
+                const out = [];
+                for (const m of list) {
+                    const io = m.lastIpcObject || {};
+                    const aw = m.activeWorkspace;          // dep: re-eval on ws switch
+                    const wsId = aw ? aw.id
+                               : (io.activeWorkspace ? io.activeWorkspace.id : -1);
+                    const sc = (m.scale && m.scale > 0) ? m.scale
+                             : (io.scale && io.scale > 0) ? io.scale : 1;
+                    const pw = m.width  || io.width  || 0;
+                    const ph = m.height || io.height || 0;
+                    if (wsId <= 0 || pw <= 0 || ph <= 0) continue;
+                    const c = cams[String(wsId)] || { x: 0, y: 0 };
+                    out.push({
+                        name: m.name || io.name || "?",
+                        wsId: wsId,
+                        focused: !!m.focused,
+                        wx: (io.x || 0) + c.x,     // global-logical origin + camera
+                        wy: (io.y || 0) + c.y,
+                        w:  Math.max(1, pw / sc),  // logical size = physical / scale
+                        h:  Math.max(1, ph / sc)
+                    });
+                }
+                return out;
+            }
+            // { "<wsId>": {x,y} } for every workspace currently on a monitor
+            readonly property var camByWs: {
+                const cams = (camFile.rev, camFile.cams);
+                const o = {};
+                for (const mm of win.monitors)
+                    o[String(mm.wsId)] = cams[String(mm.wsId)] || { x: 0, y: 0 };
+                return o;
+            }
+            // the focused monitor's viewport — auto-fit fallback, card owner
+            readonly property var focusedMon: {
+                const ms = win.monitors;
+                for (const mm of ms) if (mm.focused) return mm;
+                return ms.length ? ms[0]
+                     : { name: "?", wsId: -1, focused: true,
+                         wx: 0, wy: 0, w: usable.w, h: usable.h };
+            }
+            property var    wins: []          // {addr, cls, title, ws, wx, wy, w, h, focused}
             property string _winsJson: ""     // dedupe: skip reassign when unchanged
             property string focusedAddr: Hyprland.activeToplevel ? Hyprland.activeToplevel.address : ""
             // which window shows resize handles; "" = none
@@ -103,19 +157,23 @@ Scope {
                 if (win.editing) return;
                 const out = [];
                 const fa = _norm(win.focusedAddr);
+                const cams = win.camByWs;              // every visible workspace
                 const list = Hyprland.toplevels ? Hyprland.toplevels.values : [];
                 for (const t of list) {
                     const o = t.lastIpcObject;
                     if (!o || !o.at || !o.size) continue;
                     const ows = (o.workspace || {}).id;
-                    if (ows !== win.wsId || ows <= 0) continue;
+                    // include a window iff its workspace is shown on SOME monitor
+                    if (ows <= 0 || !(String(ows) in cams)) continue;
                     if (!o.floating) continue;
+                    const c = cams[String(ows)] || { x: 0, y: 0 };
                     out.push({
                         addr: (o.address || t.address || ""),
                         cls:  (o["initialClass"] || o["class"] || "?"),
                         title: o.title || "",
-                        wx: Math.round(o.at[0] + win.cam.x),
-                        wy: Math.round(o.at[1] + win.cam.y),
+                        ws:   ows,
+                        wx: Math.round(o.at[0] + c.x),   // at.x is GLOBAL logical
+                        wy: Math.round(o.at[1] + c.y),
                         w:  Math.max(60, Math.round(o.size[0])),
                         h:  Math.max(40, Math.round(o.size[1])),
                         focused: (win._norm(o.address || t.address) === fa && fa.length > 0)
@@ -131,12 +189,14 @@ Scope {
 
             onVisibleChanged: {
                 if (visible) {
-                    refresh(); userZoom = 1; panX = 0; panY = 0;
+                    Hyprland.refreshMonitors(); refresh(); bumpMon();
+                    userZoom = 1; panX = 0; panY = 0;
                     selectedAddr = ""; editing = false; _winsJson = "";
                     rebuild();
                 }
             }
-            onCamChanged: rebuild()
+            onMonitorsChanged: if (visible) rebuild()
+            onCamByWsChanged: if (visible) rebuild()
             onFocusedAddrChanged: if (visible) rebuild()
             Connections {
                 target: Hyprland
@@ -148,6 +208,11 @@ Scope {
                         || n === "activewindowv2" || n === "changefloatingmode"
                         || n === "fullscreen")
                         refreshDebounce.restart();
+                    else if (n === "monitoradded" || n === "monitoraddedv2"
+                        || n === "monitorremoved" || n === "workspacev2"
+                        || n === "focusedmonv2" || n === "moveworkspacev2"
+                        || n === "activespecialv2")
+                        monDebounce.restart();
                 }
             }
             Connections {
@@ -159,6 +224,14 @@ Scope {
             // tick we refresh AND rebuild from whatever the previous refresh
             // landed — the map trails real geometry by ~one tick, which is fine.
             Timer { id: refreshDebounce; interval: 40; onTriggered: { win.refresh(); win.rebuild(); } }
+            // monitor add/remove/ws-switch: re-fetch the monitor list and rebuild
+            Timer {
+                id: monDebounce; interval: 50
+                onTriggered: {
+                    Hyprland.refreshMonitors(); win.bumpMon();
+                    win.refresh(); win.rebuild();
+                }
+            }
             // while open (and not mid-edit), catch geometry changes that emit no
             // Hyprland event (panning, pseudo-maximize, Floating-World resize,
             // World Map / SUPER+mouse edits)
@@ -166,6 +239,12 @@ Scope {
                 running: win.visible && !win.editing
                 interval: 130; repeat: true
                 onTriggered: { win.refresh(); camFile.reload(); win.rebuild(); }
+            }
+            // slower beat: output layout / scale changes emit no reliable event
+            Timer {
+                running: win.visible
+                interval: 1000; repeat: true
+                onTriggered: { Hyprland.refreshMonitors(); win.bumpMon(); }
             }
             // resume the refresh loop a beat after an edit is applied
             Timer {
@@ -179,20 +258,30 @@ Scope {
             property real panX: 0
             property real panY: 0
 
-            // usable area of THIS monitor, in logical px = the viewport size
+            // usable area of THIS Quickshell screen, logical px — only a fallback
+            // now (the map fits every monitor's viewport, see `bounds`)
             readonly property var usable: {
                 const m = modelData;
                 const s = m.scale || 1;
                 return { w: m.width / s, h: m.height / s };
             }
 
-            // world bounds of everything to show (windows + the viewport)
+            // world bounds of everything to show: every monitor viewport ∪ every
+            // window. Global bounding box, per §6 — handles negative x, monitors
+            // above/below, different scales, >2 monitors.
             readonly property var bounds: {
-                let minx = win.cam.x, miny = win.cam.y;
-                let maxx = win.cam.x + usable.w, maxy = win.cam.y + usable.h;
+                let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+                for (const m of win.monitors) {
+                    minx = Math.min(minx, m.wx);        miny = Math.min(miny, m.wy);
+                    maxx = Math.max(maxx, m.wx + m.w);  maxy = Math.max(maxy, m.wy + m.h);
+                }
                 for (const w of win.wins) {
-                    minx = Math.min(minx, w.wx);  miny = Math.min(miny, w.wy);
+                    minx = Math.min(minx, w.wx);        miny = Math.min(miny, w.wy);
                     maxx = Math.max(maxx, w.wx + w.w);  maxy = Math.max(maxy, w.wy + w.h);
+                }
+                if (minx > maxx) {                       // nothing resolved yet
+                    const f = win.focusedMon;
+                    minx = f.wx; miny = f.wy; maxx = f.wx + f.w; maxy = f.wy + f.h;
                 }
                 const mx = (maxx - minx) * 0.10 + 40;
                 const my = (maxy - miny) * 0.10 + 40;
@@ -319,9 +408,47 @@ Scope {
                     Text {
                         anchors.centerIn: parent
                         visible: win.wins.length === 0
-                        text: "No windows on this workspace"
+                        text: win.monitors.length > 1 ? "No windows on the visible workspaces"
+                                                      : "No windows on this workspace"
                         font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
                         color: Theme.foregroundMuted
+                    }
+
+                    // ---- monitor viewports (one subtle rect per enabled output) ----
+                    Repeater {
+                        model: win.monitors
+                        delegate: Rectangle {
+                            required property var modelData
+                            x: win.mapX(modelData.wx)
+                            y: win.mapY(modelData.wy)
+                            width:  Math.max(2, modelData.w * win.scale)
+                            height: Math.max(2, modelData.h * win.scale)
+                            color: modelData.focused ? Theme.withAlpha(Theme.accentSoft, 0.10)
+                                                     : Theme.withAlpha(Theme.accentSoft, 0.045)
+                            border.width: modelData.focused ? 2 : 1
+                            border.color: modelData.focused
+                                ? Theme.withAlpha(Theme.accentSoft, 0.9)
+                                : Theme.withAlpha(Theme.accentSoft, 0.4)
+                            radius: 3
+                            Behavior on x      { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                            Behavior on y      { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                            Behavior on width  { NumberAnimation { duration: 120 } }
+                            Behavior on height { NumberAnimation { duration: 120 } }
+
+                            Rectangle {   // corner label — monitor name / "viewport"
+                                anchors { left: parent.left; top: parent.top; margins: 3 }
+                                width: vpl.width + 8; height: 14; radius: 3
+                                color: Theme.withAlpha(Theme.scrim, 0.7)
+                                visible: parent.width > 70
+                                Text {
+                                    id: vpl
+                                    anchors.centerIn: parent
+                                    text: win.monitors.length > 1 ? modelData.name : "viewport"
+                                    font.family: Theme.fontFamily; font.pixelSize: 9
+                                    color: Theme.accentSoft
+                                }
+                            }
+                        }
                     }
 
                     // ---- windows ----
@@ -554,32 +681,7 @@ Scope {
                         }
                     }
 
-                    // ---- current viewport ----
-                    Rectangle {
-                        x: win.mapX(win.cam.x)
-                        y: win.mapY(win.cam.y)
-                        width:  win.usable.w * win.scale
-                        height: win.usable.h * win.scale
-                        color: Theme.withAlpha(Theme.accentSoft, 0.10)
-                        border.width: 2
-                        border.color: Theme.withAlpha(Theme.accentSoft, 0.9)
-                        radius: 3
-                        Behavior on x { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-                        Behavior on y { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-                        Rectangle {   // corner label
-                            anchors { left: parent.left; top: parent.top; margins: 3 }
-                            width: vpl.width + 8; height: 14; radius: 3
-                            color: Theme.withAlpha(Theme.scrim, 0.7)
-                            visible: parent.width > 60
-                            Text {
-                                id: vpl
-                                anchors.centerIn: parent
-                                text: "viewport"
-                                font.family: Theme.fontFamily; font.pixelSize: 9
-                                color: Theme.accentSoft
-                            }
-                        }
-                    }
+                    // (monitor viewports are drawn above, behind the windows)
                 }
             }
 

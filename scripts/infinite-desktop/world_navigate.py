@@ -68,14 +68,35 @@ def _clients():
     return json.loads(r.stdout)
 
 
-def _focused_monitor():
+_FALLBACK_MON = {"x": 0, "y": 0, "width": 1920, "height": 1080,
+                 "scale": 1.0, "reserved": [0, 0, 0, 0]}
+
+
+def _monitors():
     r = subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, text=True, timeout=1)
-    mons = json.loads(r.stdout)
+    return json.loads(r.stdout)
+
+
+def _focused_monitor():
+    mons = _monitors()
     for m in mons:
         if m.get("focused"):
             return m
-    return mons[0] if mons else {"x": 0, "y": 0, "width": 1920, "height": 1080,
-                                 "scale": 1.0, "reserved": [0, 0, 0, 0]}
+    return mons[0] if mons else dict(_FALLBACK_MON)
+
+
+def _monitor_for_ws(ws):
+    """The monitor physically showing workspace `ws` — the viewport the target
+    lives in. Multi-monitor: a window on the non-focused monitor still centres in
+    ITS OWN viewport, not the focused one. Falls back to the focused monitor."""
+    mons = _monitors()
+    for m in mons:
+        if (m.get("activeWorkspace") or {}).get("id") == ws:
+            return m
+    for m in mons:
+        if m.get("focused"):
+            return m
+    return mons[0] if mons else dict(_FALLBACK_MON)
 
 
 def _usable_center(mon):
@@ -96,7 +117,7 @@ def _pan_to(target, clients):
     ws = target.get("workspace", {}).get("id")
     if ws is None:
         return
-    mon = _focused_monitor()
+    mon = _monitor_for_ws(ws)
     cx, cy = _usable_center(mon)
     tx = target["at"][0] + target["size"][0] / 2.0
     ty = target["at"][1] + target["size"][1] / 2.0

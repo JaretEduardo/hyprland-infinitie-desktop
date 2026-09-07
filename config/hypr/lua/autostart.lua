@@ -12,6 +12,13 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("systemctl --user import-environment PATH WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE")
     hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE")
 
+    -- Wallpaper-driven theming: make sure this session has a colour palette on
+    -- disk before mako / Quickshell / fuzzel / hyprlock read their configs.
+    -- `hypr-wallpaper --seed` writes the tracked fallback palette (no wallust,
+    -- no wallpaper change) and is a no-op-ish quick copy. Once the user runs
+    -- `hypr-wallpaper <image>`, wallust regenerates these from the wallpaper.
+    hl.exec_cmd([[command -v hypr-wallpaper >/dev/null 2>&1 && { [ ! -e "${XDG_CACHE_HOME:-$HOME/.cache}/hyprland-infinitie-desktop/colors.json" ] || [ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprlock-image.local.conf" ]; } && hypr-wallpaper --seed || true]])
+
     -- polkit authentication agent — the thing that renders privilege prompts.
     -- Repo standard: sys-auth/hyprpolkitagent (install/packages.gentoo), which
     -- ships the systemd *user* unit started here. `systemctl --user start` is

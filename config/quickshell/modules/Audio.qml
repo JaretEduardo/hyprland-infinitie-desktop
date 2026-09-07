@@ -1,58 +1,48 @@
-// modules/Audio.qml — output volume (click to mute) + a mic-muted indicator.
-// Reactive over PipeWire via Quickshell.Services.Pipewire, no polling.
-// PwObjectTracker binds the default sink/source so .audio.volume/.muted become
-// valid and settable — https://quickshell.org/docs/v0.3.0/types/Quickshell.Services.Pipewire/PwObjectTracker/
-
+// modules/Audio.qml — output volume as icon (+ % unless compact), click to
+// mute, scroll to adjust. Reactive over Quickshell.Services.Pipewire, no
+// polling. `compact: true` (navbar) drops the percentage, keeping just the icon.
 import QtQuick
 import Quickshell.Services.Pipewire
+import "root:/"
 
-Row {
+MouseArea {
     id: root
-    spacing: 10
+    implicitWidth: row.implicitWidth
+    implicitHeight: row.implicitHeight
+    cursorShape: Qt.PointingHandCursor
+    property bool compact: false
+    onClicked: if (haveSink) sink.audio.muted = !sink.audio.muted
+    onWheel: (w) => setPct(pct + (w.angleDelta.y > 0 ? 5 : -5))
 
-    PwObjectTracker {
-        objects: [Pipewire.defaultAudioSink, Pipewire.defaultAudioSource]
-    }
-
+    PwObjectTracker { objects: [Pipewire.defaultAudioSink, Pipewire.defaultAudioSource] }
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property var source: Pipewire.defaultAudioSource
+    readonly property bool haveSink: sink !== null && sink.audio !== null
+    readonly property int pct: haveSink ? Math.round(sink.audio.volume * 100) : 0
+    readonly property bool muted: haveSink && sink.audio.muted
+    readonly property bool micMuted: source !== null && source.audio !== null && source.audio.muted
 
-    Text {
-        font.pixelSize: 12
-        color: "#c0caf5"
-        visible: root.sink !== null && root.sink.audio !== null
-        text: {
-            if (root.sink === null || root.sink.audio === null) return "";
-            if (root.sink.audio.muted) return "mute";
-            return "VOL " + Math.round(root.sink.audio.volume * 100) + "%";
+    function setPct(p) { if (haveSink) sink.audio.volume = Math.max(0, Math.min(1, p / 100)); }
+
+    Row {
+        id: row
+        spacing: Theme.gap
+        Text {
+            font.family: Theme.iconFamily
+            font.pixelSize: Theme.iconSize
+            color: root.micMuted ? Theme.accent : (root.muted ? Theme.foregroundMuted : Theme.foreground)
+            text: root.micMuted ? Theme.icon.micOff
+                : root.muted    ? Theme.icon.volMute
+                : root.pct >= 55 ? Theme.icon.volHigh
+                : root.pct >= 15 ? Theme.icon.volMed
+                : Theme.icon.volLow
         }
-
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-                if (root.sink !== null && root.sink.audio !== null) {
-                    root.sink.audio.muted = !root.sink.audio.muted;
-                }
-            }
-        }
-    }
-
-    // Only shown while the mic is actually muted, so it stays quiet otherwise.
-    Text {
-        font.pixelSize: 12
-        color: "#f7768e"
-        visible: root.source !== null && root.source.audio !== null && root.source.audio.muted
-        text: "mic muted"
-
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-                if (root.source !== null && root.source.audio !== null) {
-                    root.source.audio.muted = !root.source.audio.muted;
-                }
-            }
+        Text {
+            visible: root.haveSink && !root.muted && !root.compact
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.foregroundMuted
+            text: root.pct + "%"
         }
     }
 }

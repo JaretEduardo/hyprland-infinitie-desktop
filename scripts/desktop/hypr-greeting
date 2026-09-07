@@ -1,0 +1,21 @@
+#!/bin/sh
+#
+# hypr-greeting — print a time-of-day greeting. Used by hyprlock's greeting
+# label (config/hyprlock/hyprlock.conf) via `cmd[]`.
+#
+#   05-11 -> Good morning.
+#   12-17 -> Good afternoon.
+#   18-21 -> Good evening.
+#   22-04 -> Good night.
+#
+# No root, no network. Installed to ~/.local/bin by `install.sh dotfiles`.
+
+h=$(date +%H)
+h=${h#0}
+: "${h:=0}"
+
+if   [ "$h" -ge 5 ]  && [ "$h" -le 11 ]; then echo "Good morning."
+elif [ "$h" -ge 12 ] && [ "$h" -le 17 ]; then echo "Good afternoon."
+elif [ "$h" -ge 18 ] && [ "$h" -le 21 ]; then echo "Good evening."
+else                                           echo "Good night."
+fi

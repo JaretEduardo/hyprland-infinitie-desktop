@@ -162,6 +162,40 @@ overlay while the desktop is being dragged. Details:
 This is a hint to an external shell and is **entirely optional**: Infinite Desktop
 works with no Quickshell running.
 
+### 2.5 World coordinates and the World Map
+
+The daemon pans by physically moving windows, so a stable per-window coordinate
+needs a camera offset: `worldX = window.at.x + camera.x`.
+
+- **`world.py`** owns `camera.json` — one `{x,y}` per workspace, under
+  `$XDG_RUNTIME_DIR/infinite-desktop/`, `flock`-guarded, written atomically
+  (`os.replace`), **not** persisted across reboot. `bump_camera(ws, dx, dy)`,
+  `read_camera()`, `reset()`.
+- Every panning path calls `world.bump_camera(ws, -dx, -dy)` immediately after
+  moving windows: the core's `pan_other_windows` and main loop, `move_window.py`
+  (edge-push), `navigate_windows.py`. Failures are swallowed — the import is
+  optional, so an older deploy without `world.py` still runs.
+- **`world_navigate.py {address|class} <value>`** flies the camera to a window:
+  it steps *every* floating window on the workspace by the delta that centres
+  the target (`_smoothstep`, 11 frames — the same pan mechanism, whole layout
+  preserved), focuses it, then bumps the camera. `class` mode cycles a
+  multi-window app on repeated calls (`cycle.json`). A `.navigate.lock` `flock`
+  serialises concurrent calls. Called by the Quickshell World Map
+  (`config/quickshell/WorldMap.qml`) and the navbar's open-app icons.
+- **`world_edit.py geometry <addr> <worldX> <worldY> <w> <h>`** (also `move` /
+  `resize`) applies a World Map drag / resize-handle edit: reads `camera.json`,
+  converts `screen = world − camera` for the window's workspace, moves + resizes
+  by address in one `hyprctl` batch. It does **not** touch the camera (an edit
+  changes where a window sits in the world, it does not navigate) and it deletes
+  the window's pseudo-max restore file so `SUPER + F` won't snap the hand-placed
+  geometry back. Min 220×140, no max. Quickshell only sends `geometry`, passing
+  the unchanged axis through, so a move-only or resize-only edit is still one
+  call — and previews entirely in QML, so there is no process per mouse-move.
+
+The World Map reads `camera.json` (watched) + `hyprctl` toplevel geometry and is
+event-driven (`rawEvent` + a 130 ms timer only while it is open). It is a
+Quickshell overlay; the daemon has no knowledge of it.
+
 ### 2.6 Input device access
 
 The daemon reads `/dev/input/event*` directly (keyboards for Super/Alt/Ctrl
@@ -470,4 +504,7 @@ run `sudo`/`usermod`.
 | `move_window_tiled.py` | `SUPER + ALT + arrows` — move a tiled window (delegates to `move_window.py` when floating) |
 | `resize_window.py` | `SUPER + CTRL + arrows` — resize the active floating window |
 | `floating_tile_toggle.py` | `SUPER + D` — toggle floating/tiled for the whole workspace, remembering geometry |
+| `world.py` | per-workspace camera offset (`camera.json`, `flock` + atomic write); shared by the daemon and the navigate scripts (section 2.5) |
+| `world_navigate.py` | fly the camera to a window / cycle an app's windows; called by the Quickshell World Map and navbar (section 2.5) |
+| `world_edit.py` | apply a World Map move / resize (world→screen, one batch, camera untouched, drops pseudo-max state); section 2.5 |
 | `discover_hyprland_api.sh` | diagnostic/probing script for the `hl.dsp.window.*` API — moves/resizes the focused window (section 5) |

@@ -1,0 +1,474 @@
+#!/usr/bin/env bash
+#
+# hypr-wallpaper — one command for wallpaper-driven theming on this desktop.
+# Handles BOTH static images and animated (video / GIF) wallpapers.
+#
+#   hypr-wallpaper <file>      set <file> as the wallpaper. Detects the type
+#                              (image -> Quickshell; video/GIF -> mpvpaper) and
+#                              records it in wallpaper.state. When Quickshell is
+#                              running it drives the DIAGONAL WIPE and the
+#                              mpvpaper handoff (start new / retire old by pid)
+#                              with the right timing; this command only writes
+#                              state, nudges Quickshell, then runs wallust OUT
+#                              of the hot path. Safe to fire rapidly — a flock
+#                              serialises the fast part, the newest wallpaper
+#                              wins, and no mpvpaper is orphaned.
+#   hypr-wallpaper --spawn-mpvpaper <video>
+#                              start mpvpaper for <video> if the current state
+#                              still wants it — called by Quickshell as the wipe
+#                              completes. Idempotent. (Not for interactive use.)
+#   hypr-wallpaper --list-json list every wallpaper under the wallpaper dir as a
+#                              JSON array (path/name/type/thumb) — the Quickshell
+#                              WallpaperPicker reads this. Honours subdirectories.
+#   hypr-wallpaper --seed      write the built-in fallback palette to every
+#                              target (no wallust, no wallpaper change) — run
+#                              once on a fresh session so the colour files exist
+#   hypr-wallpaper --reset     return to the fallback: --seed + forget the
+#                              active wallpaper (stops any animated wallpaper)
+#   hypr-wallpaper --reload    re-apply the current palette/wallpaper to the
+#                              running programs (Quickshell, mako, Hyprland)
+#   hypr-wallpaper --status    show what is active (reads the state file)
+#
+# ONE source of truth — the machine-local state file (written atomically via a
+# temp file + rename, so a concurrent reader never sees a torn file):
+#   $XDG_CACHE_HOME/hyprland-infinitie-desktop/wallpaper.state
+#     type=static|animated|fallback
+#     path=/abs/path/to/original            (the video, when animated)
+#     palette_source=/abs/path/to/image-or-cached-frame
+#     backend=quickshell|mpvpaper|none
+#     pid=<mpvpaper pid>         (animated; empty until Quickshell spawns it)
+#     prev_pid=<mpvpaper pid>    (the previous animated wallpaper's pid, for the
+#                                 safety-net retire if Quickshell is not running)
+#     gen=<run id>              (which invocation last wrote this — drops a stale
+#                                 wallust result during rapid switching)
+#
+# What it writes (all machine-local, git-ignored, beside the managed symlinks):
+#   $XDG_CACHE_HOME/hyprland-infinitie-desktop/colors.json      Quickshell (Theme.qml)
+#   $XDG_CACHE_HOME/hyprland-infinitie-desktop/wallpaper.path   Quickshell (Wallpaper.qml)
+#   $XDG_CACHE_HOME/hyprland-infinitie-desktop/wallpaper.state  Quickshell + --status
+#   ~/.config/hypr/colors.local.lua                             Hyprland (appearance.lua)
+#   ~/.config/mako/colors.local                                 mako (config `include=`)
+#   ~/.config/fuzzel/colors.local.ini                           fuzzel (`include=`)
+#   ~/.config/hypr/hyprlock-colors.local.conf                   hyprlock (`source=`)
+#   ~/.config/hypr/hyprlock-image.local.conf                    hyprlock ($lock_image)
+#
+# The mapping wallust-palette -> semantic tokens lives in the templates at
+# config/wallust/templates/ (deployed to ~/.config/wallust/templates/).
+#
+# No root. Never uses `pkill <name>` — the only animated process it touches is
+# the one whose pid it recorded. Installed to ~/.local/bin by `install.sh dotfiles`.
+
+set -u
+
+_die()  { printf 'hypr-wallpaper: %s\n' "$*" >&2; exit 1; }
+_note() { printf 'hypr-wallpaper: %s\n' "$*"; }
+_warn() { printf 'hypr-wallpaper: %s\n' "$*" >&2; }
+_usage() {
+    sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'
+    exit "${1:-2}"
+}
+
+# unique per invocation — recorded as `gen=` so a slow wallust run from an
+# older invocation can tell it has been superseded and bow out.
+RUN_ID="$(date +%s%N 2>/dev/null || date +%s)-$$"
+
+# write a single line to a file atomically (temp + rename on the same fs)
+_atomic_write() {  # <file> <content>
+    local f="$1" tmp
+    mkdir -p -- "$(dirname "$f")" 2>/dev/null || true
+    tmp="$(mktemp "$f.XXXXXX" 2>/dev/null)" || { printf '%s\n' "$2" > "$f"; return; }
+    printf '%s\n' "$2" > "$tmp" && mv -f "$tmp" "$f" || { rm -f "$tmp"; printf '%s\n' "$2" > "$f"; }
+}
+
+# ---- locations ----------------------------------------------------------
+SELF="$(readlink -f -- "$0" 2>/dev/null || printf '%s' "$0")"
+REPO="$(cd "$(dirname "$SELF")/../.." 2>/dev/null && pwd || true)"
+FALLBACK_DIR="$REPO/config/wallust/fallback"
+
+CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+STATE_DIR="$CACHE_HOME/hyprland-infinitie-desktop"
+
+QS_COLORS="$STATE_DIR/colors.json"
+WP_PATH="$STATE_DIR/wallpaper.path"
+WP_STATE="$STATE_DIR/wallpaper.state"
+WP_LOCK="$STATE_DIR/.wallpaper.lock"
+FRAME_DIR="$STATE_DIR/wallpaper-frames"
+HYPR_COLORS="$CONFIG_HOME/hypr/colors.local.lua"
+MAKO_COLORS="$CONFIG_HOME/mako/colors.local"
+FUZZEL_COLORS="$CONFIG_HOME/fuzzel/colors.local.ini"
+HYPRLOCK_COLORS="$CONFIG_HOME/hypr/hyprlock-colors.local.conf"
+HYPRLOCK_IMAGE="$CONFIG_HOME/hypr/hyprlock-image.local.conf"
+
+WALLUST_CONF="$CONFIG_HOME/wallust/wallust.toml"
+
+# Wallpaper library: $HYPR_WALLPAPER_DIR, else <XDG PICTURES>/Wallpapers, else
+# ~/Pictures/Wallpapers. Subdirectories are walked. Never hardcodes $HOME.
+_wallpaper_dir() {
+    if [ -n "${HYPR_WALLPAPER_DIR:-}" ]; then
+        printf '%s\n' "$HYPR_WALLPAPER_DIR"; return
+    fi
+    local pics=""
+    if command -v xdg-user-dir >/dev/null 2>&1; then
+        pics="$(xdg-user-dir PICTURES 2>/dev/null || true)"
+    fi
+    [ -n "$pics" ] || pics="$HOME/Pictures"
+    printf '%s/Wallpapers\n' "$pics"
+}
+
+# extension -> kind ("static" | "animated" | "")
+_kind_of() {
+    case "$(printf '%s' "${1##*.}" | tr '[:upper:]' '[:lower:]')" in
+        jpg|jpeg|png|webp) echo static ;;
+        gif|mp4|webm|mkv)  echo animated ;;
+        *)                 echo "" ;;
+    esac
+}
+
+# ---- state file -------------------------------------------------------
+_state_get() {  # _state_get <key>
+    [ -r "$WP_STATE" ] || return 1
+    sed -n "s/^$1=//p" "$WP_STATE" | head -n1
+}
+_state_write() {  # _state_write type path palette_source backend pid prev_pid gen
+    mkdir -p -- "$STATE_DIR" || _die "cannot create $STATE_DIR"
+    _atomic_write "$WP_STATE" "$(
+        printf 'type=%s\n'           "$1"
+        printf 'path=%s\n'           "$2"
+        printf 'palette_source=%s\n' "$3"
+        printf 'backend=%s\n'        "$4"
+        printf 'pid=%s\n'            "${5:-}"
+        printf 'prev_pid=%s\n'       "${6:-}"
+        printf 'gen=%s'              "${7:-}"
+    )"
+}
+
+# update ONE key of the state file in place (atomic), leaving the rest alone
+_state_set() {  # _state_set <key> <value>
+    [ -r "$WP_STATE" ] || return 1
+    local tmp; tmp="$(mktemp "$WP_STATE.XXXXXX" 2>/dev/null)" || return 1
+    if grep -q "^$1=" "$WP_STATE"; then
+        sed "s|^$1=.*|$1=$2|" "$WP_STATE" > "$tmp"
+    else
+        cp -- "$WP_STATE" "$tmp" && printf '%s=%s\n' "$1" "$2" >> "$tmp"
+    fi
+    mv -f "$tmp" "$WP_STATE" || { rm -f "$tmp"; return 1; }
+}
+
+# ---- animated (mpvpaper) lifecycle ----------------------------------
+# We only ever touch the ONE mpvpaper whose pid we recorded — never
+# `pkill mpvpaper` (the user may run their own).
+
+# id the process by pid AND cmdline, so a recycled pid is never killed
+_is_our_mpvpaper() {  # <pid>
+    local pid="${1:-}"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+    case "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)" in
+        *mpvpaper*) return 0 ;;
+        *)          return 1 ;;
+    esac
+}
+
+# our mpvpaper invocations carry this exact option signature; a user's own
+# mpvpaper will not. Used to reap stragglers without a blind `pkill mpvpaper`.
+_MPVP_SIG='--loop-file=inf --panscan=1.0 --hwdec=auto'
+
+# kill every mpvpaper WE started except the one in state `pid=` — the "exactly
+# 0 or 1" guarantee. Quickshell calls this after a handoff; --reset calls it
+# with nothing to keep. Never touches an mpvpaper without our signature.
+_reap() {
+    local keep p
+    keep="$(_state_get pid || true)"
+    for p in $(pgrep -x mpvpaper 2>/dev/null || true); do
+        [ "$p" = "$keep" ] && continue
+        case "$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null || true)" in
+            *"$_MPVP_SIG"*) kill "$p" 2>/dev/null || true; _note "reaped stray mpvpaper (pid $p)" ;;
+        esac
+    done
+}
+
+# stop immediately (used by --reset, where no visual handoff is wanted)
+_stop_animated() {
+    local pid; pid="$(_state_get pid || true)"
+    _is_our_mpvpaper "$pid" && { kill "$pid" 2>/dev/null || true; _note "stopped animated wallpaper (pid $pid)"; }
+    _reap
+}
+
+# Kill a pid after a delay, detached (never blocks). Used as a SAFETY NET for
+# the previous mpvpaper: when Quickshell is running it does the real, well-timed
+# retire (right as the diagonal wipe completes); this just guarantees no orphan
+# if Quickshell is down or missed it. Long delay so Quickshell's kill wins.
+_retire_pid_later() {  # <pid> <delay-seconds>
+    local pid="${1:-}"
+    _is_our_mpvpaper "$pid" || return 0
+    setsid sh -c "sleep $2; kill $pid 2>/dev/null" >/dev/null 2>&1 9>&- &
+    _note "safety-net retire of previous animated wallpaper (pid $pid) in ${2}s"
+}
+
+_start_animated() {  # _start_animated <video>  -> echoes the real mpvpaper pid
+    command -v mpvpaper >/dev/null 2>&1 \
+        || { _warn "mpvpaper not installed — install gui-apps/mpvpaper (guru); animated wallpaper skipped"; return 1; }
+    # '*' = every output (multi-monitor safe; no hardcoded eDP-1).
+    # 9>&- : do NOT let mpvpaper inherit the flock fd (it would hold it forever).
+    nohup mpvpaper -o "no-audio --loop-file=inf --panscan=1.0 --hwdec=auto" \
+        '*' "$1" >/dev/null 2>&1 9>&- &
+    echo "$!"
+}
+
+_qs_up() { command -v qs >/dev/null 2>&1 && pgrep -x qs >/dev/null 2>&1; }
+
+# ---- palette source for a video: a representative frame -----------
+_frame_for() {  # _frame_for <video>  -> echoes a cached png path, or nothing
+    command -v ffmpeg >/dev/null 2>&1 \
+        || { _warn "ffmpeg not installed — palette not derived from the video"; return 1; }
+    mkdir -p -- "$FRAME_DIR" || return 1
+    local video="$1" key out
+    key="$(printf '%s' "$video" | sha1sum | cut -c1-16)"
+    out="$FRAME_DIR/$key-$(stat -c '%Y-%s' -- "$video" 2>/dev/null || echo 0).png"
+    if [ ! -s "$out" ]; then
+        ffmpeg -y -loglevel error -ss 3 -i "$video" -frames:v 1 -vf "scale=1280:-2" "$out" 2>/dev/null \
+            || ffmpeg -y -loglevel error -i "$video" -frames:v 1 -vf "scale=1280:-2" "$out" 2>/dev/null \
+            || { _warn "could not extract a frame from ${video##*/}"; return 1; }
+    fi
+    printf '%s\n' "$out"
+}
+
+# ---- palette (wallust) --------------------------------------------
+# Non-fatal: the wallpaper itself has already changed by the time this runs, so
+# a missing / failing wallust must NOT abort — it just means the palette stays
+# as-is until next time.
+_generate() {  # _generate <image-or-frame>  -> 0 on success, 1 otherwise
+    local img="$1" d
+    [ -n "$img" ] && [ -r "$img" ] || { _warn "no palette source — palette unchanged"; return 1; }
+    command -v wallust >/dev/null 2>&1 \
+        || { _warn "wallust not installed — palette unchanged (install x11-misc/wallust, guru)"; return 1; }
+    [ -r "$WALLUST_CONF" ] \
+        || { _warn "no wallust config at $WALLUST_CONF (run: install.sh dotfiles --apply) — palette unchanged"; return 1; }
+    for d in "$STATE_DIR" "$CONFIG_HOME/hypr" "$CONFIG_HOME/mako" "$CONFIG_HOME/fuzzel"; do
+        mkdir -p -- "$d" 2>/dev/null || true
+    done
+    wallust run "$img" >/dev/null 2>&1 || { _warn "wallust failed on ${img##*/} — palette unchanged"; return 1; }
+    _note "palette generated from ${img##*/}"
+}
+
+# hyprlock background: the still image, or the cached video frame.
+_write_hyprlock_image() {
+    mkdir -p -- "$CONFIG_HOME/hypr" || return 0
+    printf '# generated by hypr-wallpaper — machine-local, git-ignored.\n$lock_image = %s\n' \
+        "$1" > "$HYPRLOCK_IMAGE" 2>/dev/null || true
+}
+
+# ---- seed / targets -------------------------------------------------
+_seed_pairs() {
+    printf '%s\t%s\n' "$FALLBACK_DIR/colors.json"                "$QS_COLORS"
+    printf '%s\t%s\n' "$FALLBACK_DIR/hyprland-colors.lua"        "$HYPR_COLORS"
+    printf '%s\t%s\n' "$FALLBACK_DIR/mako-colors.local"          "$MAKO_COLORS"
+    printf '%s\t%s\n' "$FALLBACK_DIR/fuzzel-colors.local.ini"    "$FUZZEL_COLORS"
+    printf '%s\t%s\n' "$FALLBACK_DIR/hyprlock-colors.local.conf" "$HYPRLOCK_COLORS"
+}
+
+_seed() {
+    [ -d "$FALLBACK_DIR" ] || _die "fallback palette not found at $FALLBACK_DIR (is the repo intact?)"
+    local src dst n=0
+    while IFS=$'\t' read -r src dst; do
+        [ -r "$src" ] || _die "missing fallback file: $src"
+        mkdir -p -- "$(dirname "$dst")" || _die "cannot create $(dirname "$dst")"
+        cp -- "$src" "$dst" || _die "cannot write $dst"
+        n=$((n + 1))
+    done < <(_seed_pairs)
+    _write_hyprlock_image "screenshot"
+    _note "seeded fallback palette ($n files)"
+}
+
+# nudge just the wallpaper surface — cheap, immediate, the visual half
+_reload_wallpaper() {
+    command -v qs >/dev/null 2>&1 && pgrep -x qs >/dev/null 2>&1 || return 0
+    qs ipc call wallpaper reload >/dev/null 2>&1 || true
+}
+
+# re-apply the palette everywhere — the slow half, runs after wallust
+_reload_theme() {
+    local did=""
+    if command -v qs >/dev/null 2>&1 && pgrep -x qs >/dev/null 2>&1; then
+        qs ipc call theme reload >/dev/null 2>&1 || true
+        did="$did quickshell"
+    fi
+    if command -v makoctl >/dev/null 2>&1 && pgrep -x mako >/dev/null 2>&1; then
+        makoctl reload >/dev/null 2>&1 || true
+        did="$did mako"
+    fi
+    if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        hyprctl reload >/dev/null 2>&1 || true
+        did="$did hyprland"
+    fi
+    [ -n "$did" ] && _note "palette reloaded:$did" || true
+}
+
+# both halves — used by --reload / --reset
+_reload() { _reload_wallpaper; _reload_theme; }
+
+_status() {
+    if [ -r "$WP_STATE" ]; then
+        cat "$WP_STATE"
+        local pid; pid="$(_state_get pid || true)"
+        if [ -n "${pid:-}" ]; then
+            kill -0 "$pid" 2>/dev/null && echo "pid_alive=yes" || echo "pid_alive=no"
+        fi
+    else
+        echo "type=fallback"
+        echo "path="
+        [ -r "$QS_COLORS" ] && echo "palette_source=(seeded fallback)" || echo "palette_source=(none)"
+        echo "backend=none"
+    fi
+    printf 'wallust=%s\n' "$(command -v wallust >/dev/null 2>&1 && wallust --version 2>/dev/null || echo 'not installed')"
+    printf 'mpvpaper=%s\n' "$(command -v mpvpaper >/dev/null 2>&1 && echo installed || echo 'not installed')"
+    printf 'wallpaper_dir=%s\n' "$(_wallpaper_dir)"
+}
+
+_list_json() {
+    local dir; dir="$(_wallpaper_dir)"
+    mkdir -p -- "$dir" 2>/dev/null || true
+    printf '['
+    local first=1 f name kind thumb
+    while IFS= read -r f; do
+        kind="$(_kind_of "$f")"
+        [ -n "$kind" ] || continue
+        name="${f##*/}"
+        if [ "$kind" = "static" ]; then
+            thumb="$f"
+        elif command -v wallpaper-thumb >/dev/null 2>&1; then
+            thumb="$(wallpaper-thumb "$f" 2>/dev/null || echo "$f")"
+        else
+            thumb="$f"
+        fi
+        [ "$first" -eq 1 ] || printf ','
+        first=0
+        printf '{"path":"%s","name":"%s","type":"%s","thumb":"%s"}' \
+            "$(_json "$f")" "$(_json "$name")" "$kind" "$(_json "$thumb")"
+    done < <(find -L "$dir" -type f 2>/dev/null | sort)
+    printf ']\n'
+}
+_json() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+# ---- set a wallpaper ----------------------------------------------
+# Order of operations (the whole point of the fluid transition):
+#   1. under an flock: record the switch, start/retire mpvpaper, write the
+#      state + path atomically, nudge Quickshell   <- the VISUAL change
+#   2. release the lock (rapid clicks only ever wait on step 1, which is fast)
+#   3. run wallust and reload the palette           <- the SLOW half, off the
+#      hot path; skipped entirely if a newer invocation has taken over
+_apply() {
+    local raw="$1" img kind frame="" palette_src
+    img="$(readlink -f -- "$raw" 2>/dev/null || true)"
+    [ -n "$img" ] && [ -f "$img" ] || _die "not a file: $raw"
+    kind="$(_kind_of "$img")"
+    [ -n "$kind" ] || _die "unsupported type: $raw (want jpg/jpeg/png/webp/gif/mp4/webm/mkv)"
+    mkdir -p -- "$STATE_DIR" || _die "cannot create $STATE_DIR"
+
+    # extract the video frame BEFORE the lock (slow-ish first time, cached after)
+    [ "$kind" = animated ] && frame="$(_frame_for "$img" || true)"
+
+    # ---- step 1: the fast, serialised critical section ----------------
+    exec 9>"$WP_LOCK" || _die "cannot open lock $WP_LOCK"
+    flock 9
+    local prev_pid; prev_pid="$(_state_get pid || true)"   # mpvpaper that may need retiring
+
+    if [ "$kind" = static ]; then
+        palette_src="$img"
+        _atomic_write "$WP_PATH" "$img"
+        _write_hyprlock_image "$img"
+        # pid empty (no video); prev_pid recorded so Quickshell / the safety net
+        # can retire the old mpvpaper once the wipe has covered the screen.
+        _state_write static "$img" "$img" quickshell "" "$prev_pid" "$RUN_ID"
+        if _qs_up; then
+            _retire_pid_later "$prev_pid" 4       # Quickshell retires sooner; this is a net
+        else
+            _is_our_mpvpaper "$prev_pid" && { kill "$prev_pid" 2>/dev/null || true; }
+        fi
+        _note "static wallpaper: ${img##*/}"
+    else
+        palette_src="${frame:-$img}"
+        _atomic_write "$WP_PATH" "${frame:-$img}"
+        _write_hyprlock_image "${frame:-$img}"
+        if _qs_up; then
+            # Quickshell drives the wipe and spawns/retires mpvpaper with the
+            # right timing (see Wallpaper.qml / `--spawn-mpvpaper`).
+            _state_write animated "$img" "${frame:-$img}" mpvpaper "" "$prev_pid" "$RUN_ID"
+            _retire_pid_later "$prev_pid" 4
+            _note "animated wallpaper: ${img##*/} (Quickshell handoff)"
+        else
+            local pid; pid="$(_start_animated "$img" || true)"
+            _state_write animated "$img" "${frame:-$img}" mpvpaper "${pid:-}" "" "$RUN_ID"
+            _is_our_mpvpaper "$prev_pid" && \
+                setsid sh -c "sleep 0.4; kill $prev_pid 2>/dev/null" >/dev/null 2>&1 9>&- &
+            _note "animated wallpaper: ${img##*/}${pid:+ (mpvpaper pid $pid)}"
+        fi
+    fi
+    _reload_wallpaper                             # Quickshell starts the wipe NOW
+    flock -u 9
+    exec 9>&-
+
+    # ---- step 3: the slow half, only if we are still the newest run --
+    if [ "$(_state_get gen || true)" = "$RUN_ID" ]; then
+        _generate "$palette_src" || true
+        [ "$(_state_get gen || true)" = "$RUN_ID" ] && _reload_theme || \
+            _note "superseded by a newer wallpaper — palette left to that run"
+    else
+        _note "superseded before palette generation — skipping wallust"
+    fi
+}
+
+# Start the mpvpaper for the CURRENT animated wallpaper, if one is not already
+# running. Called by Quickshell (Wallpaper.qml) as the diagonal wipe completes,
+# so the frame->video handoff is clean. Idempotent; a no-op if the state has
+# since moved on (a newer wallpaper won).
+_spawn_mpvpaper() {  # <video>
+    local video="$1" rc=0
+    exec 9>"$WP_LOCK" || _die "cannot open lock $WP_LOCK"
+    flock 9
+    if [ "$(_state_get type || true)" != animated ]; then
+        _note "not animated anymore — skip spawn"
+    elif [ "$(_state_get path || true)" != "$video" ]; then
+        _note "video changed — skip spawn"
+    else
+        local cur; cur="$(_state_get pid || true)"
+        if _is_our_mpvpaper "$cur" \
+           && case "$(tr '\0' ' ' < "/proc/$cur/cmdline" 2>/dev/null || true)" in *"$video"*) true ;; *) false ;; esac; then
+            _note "mpvpaper already running for this video (pid $cur)"
+        else
+            local pid; pid="$(_start_animated "$video" || true)"
+            if [ -n "${pid:-}" ]; then
+                _state_set pid "$pid"
+                _note "mpvpaper started (pid $pid) for ${video##*/}"
+            else
+                _warn "could not start mpvpaper"; rc=1
+            fi
+        fi
+    fi
+    flock -u 9
+    exec 9>&-
+    return $rc
+}
+
+# ---- dispatch -------------------------------------------------------
+[ "$#" -ge 1 ] || _usage
+
+case "$1" in
+    -h|--help)          _usage 0 ;;
+    --status)           _status ;;
+    --list-json)        _list_json ;;
+    --seed)             _seed ;;
+    --reload)           _reload ;;
+    --spawn-mpvpaper)   [ "$#" -eq 2 ] || _usage
+                        _spawn_mpvpaper "$2" ;;
+    --reap)             _reap ;;
+    --reset)
+        _stop_animated
+        _seed
+        rm -f -- "$WP_PATH" "$WP_STATE"
+        _reload
+        ;;
+    -*)                 _die "unknown option: $1" ;;
+    *)                  [ "$#" -eq 1 ] || _usage
+                        _apply "$1" ;;
+esac

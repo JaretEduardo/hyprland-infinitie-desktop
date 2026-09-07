@@ -38,14 +38,19 @@ config/
   hypridle/  hyprlock/         idle ladder + lock screen config (see POWER.md)
   logind/                      logind.conf.d drop-in for lid/power-key/idle-action
   mako/                        notification daemon config (linked by dotfiles)
-  fuzzel/                      app-launcher config (linked by dotfiles)
+  fuzzel/                      launcher config — fallback only (Super+Shift+Space)
   xdg-desktop-portal/          hyprland-portals.conf: portal backend order (linked by dotfiles)
   polkit/actions/              polkit policy for the helper above; also NOT installed
-  quickshell/                  modular Quickshell bar
+  quickshell/                  Quickshell shell: floating navbar island (Bar.qml)
+                                 + PanelHost.qml (one contextual panel zone:
+                                 panels/{Controls,Stats,Notifications}Panel.qml,
+                                 panels/WallpaperPicker.qml)
+                                 + Launcher.qml (Caelestia-style app launcher)
 scripts/
   infinite-desktop/            the Infinite Desktop component (evdev daemon + IPC)
-  desktop/                     small desktop helpers + tests: hypr-screenshot
-                                 (grim/slurp/wl-copy; linked to ~/.local/bin by dotfiles)
+  desktop/                     small desktop helpers + tests: hypr-screenshot,
+                                 hypr-wallpaper (static + animated), wallpaper-thumb,
+                                 hypr-greeting, hypr-weather (linked to ~/.local/bin)
 docs/                          per-topic documentation
 ```
 
@@ -138,8 +143,10 @@ pcall-free.
 | `env.lua` | cursor size; loads `gpu.local.lua` (AQ_DRM_DEVICES) if present |
 | `monitors.lua` | generic `output = ""` fallback rule (no `eDP-1`, no resolution); loads `monitors.local.lua` |
 | `input.lua` | keyboard + touchpad base, 3-finger workspace swipe |
-| `appearance.lua` | minimal gaps / borders / layout; Quickshell owns the visuals later |
-| `bindings.lua` | basic desktop keybinds; `Super+Return` → `$TERMINAL` (falls back to `foot`), `Super+Space` → `fuzzel`, `Print` / `Super+Print` / `Super+Shift+S` → `hypr-screenshot` (see README "Keybindings") |
+| `appearance.lua` | gaps / rounding / blur / shadow / animations (static); border + shadow **colours** come from `~/.config/hypr/colors.local.lua` (wallpaper-driven, with a built-in fallback) |
+| `bindings.lua` | basic desktop keybinds; `Super+Return` → `$TERMINAL` (falls back to `foot`); **`Super` tap** and `Super+Space` → native Quickshell launcher (`qs ipc call launcher toggle`); `Super+Shift+Space` → `fuzzel` (fallback); `Super+W` → wallpaper picker; `Super+Tab` → World Map (`qs ipc call worldmap toggle`; Alt+Tab is not bound); `Super`+LMB/RMB drag → move/resize the floating window; `Print` / `Super+Print` / `Super+Shift+S` → `hypr-screenshot` (see README "Keybindings"). The `Super` tap is `release = true` on `Super_L`, so it does **not** fire when `Super` was part of a key combo; `lua/window-edit.lua` re-binds it with a guard so a `Super`+mouse drag doesn't fire it either. |
+| `floating-world.lua` | the window model — every normal window opens **floating**, smart-sized, placed near the last-focused window (see below). Re-binds `Super+F` → pseudo-maximize; `Super+Shift+F` → real fullscreen. |
+| `window-edit.lua` | `Super`+LMB/RMB move/resize coherence: the SUPER-tap-vs-launcher guard, and dropping a window's pseudo-max restore state on a hand edit. Loaded after `floating-world.lua`. |
 | `laptop.lua` | XF86 volume/mic/brightness/media keybinds (`wpctl`/`brightnessctl`/`playerctl`) |
 | `autostart.lua` | environment import; polkit agent (`hyprpolkitagent.service`, user unit); `mako` (notifications); Quickshell; `hypridle` — each guarded so a reload never double-spawns |
 | `infinite-desktop.lua` | Infinite Desktop autostart + keybinds; the only seam to that component. Loaded last; `hl.unbind`s + rebinds `SUPER + arrows`. |
@@ -155,6 +162,104 @@ symlinks and are never managed or deleted by `install.sh dotfiles`:
 | `~/.config/hypr/monitors.local.lua` | `install.sh first-run` / `monitor` (panel + real refresh) |
 | `~/.config/hypr/gpu.local.lua` | optional, hand-written (see below) |
 | `~/.config/hypr/*.local.lua` | optional, hand-written |
+| `~/.config/hypr/colors.local.lua` | `hypr-wallpaper` (wallust) or `--seed` (fallback) |
+| `~/.config/hypr/hyprlock-colors.local.conf` | `hypr-wallpaper` / `--seed` — `source`d by `hyprlock.conf` |
+| `~/.config/hypr/hyprlock-image.local.conf` | `hypr-wallpaper` / `--seed` — `$lock_image` (still wallpaper or cached video frame), `source`d by `hyprlock.conf` |
+| `~/.config/hypr/weather.conf` | you, optional — `LOCATION="…"` enables the lock-screen weather line (one opt-in wttr.in call) |
+| `~/.config/mako/colors.local` | `hypr-wallpaper` / `--seed` — `include`d by `mako/config` |
+| `~/.config/fuzzel/colors.local.ini` | `hypr-wallpaper` / `--seed` — `include`d by `fuzzel.ini` |
+| `~/.cache/hyprland-infinitie-desktop/colors.json` | `hypr-wallpaper` / `--seed` — watched by Quickshell `Theme.qml` |
+| `~/.cache/hyprland-infinitie-desktop/wallpaper.path` | `hypr-wallpaper` — the still/frame path, for hyprlock + other readers (Quickshell no longer reads it) |
+| `~/.cache/hyprland-infinitie-desktop/wallpaper.state` | `hypr-wallpaper` (atomic temp+rename) — the one source of truth Quickshell reads: `type`/`path`(video)/`palette_source`(still)/`backend`/`pid`/`prev_pid`/`gen` |
+| `~/.cache/hyprland-infinitie-desktop/wallpaper-{frames,thumbs}/` | `hypr-wallpaper` / `wallpaper-thumb` — cached video frames |
+
+### Quickshell shell layout
+
+`Bar.qml` is a **floating navbar island** — one `PanelWindow` per monitor,
+anchored to the top edge only (so wlr-layer-shell centres it), ~48 % of the
+monitor width (capped), ~28 px tall, rounded, translucent, **no exclusive
+zone** (it floats over windows, like the reference rice). Contents are
+deliberately minimal: four panel buttons + workspace indicators (left), the
+**World Map ring** (centre — the entry to the minimap, `modules/WorldButton.qml`),
+and open-app icons (`modules/OpenApps.qml`) · network · audio · battery · clock
+(right).
+
+`shell.qml` owns one string, `panel`
+(`"" | controls | stats | notifications | wallpapers`).
+`PanelHost.qml` is a single full-screen transparent overlay window that renders
+whichever `panels/*Panel.qml` is selected, docked just under the island.
+`HyprlandFocusGrab` closes it on click-outside / Escape (`keyboardFocus:
+OnDemand`, so mouse-only panels are unaffected and `WallpaperPicker` can take
+arrow keys / type-to-filter once clicked); a navbar button toggles it
+(`qs ipc call panel toggle <name>`; the legacy `dashboard` target still maps to
+`controls`). CPU / MEM / NVIDIA live in `StatsPanel` now, not the navbar;
+`ControlsPanel` is the former `Dashboard.qml`.
+
+`Launcher.qml` is separate — a **centred floating overlay**, not docked, with
+exclusive keyboard focus and its own `quickshell:launcher` blur layer. It lists
+apps from `DesktopEntries` (real icons, fuzzy search) and launches via
+`Quickshell.execDetached`. `Super` tap / `Super+Space` toggle it
+(`qs ipc call launcher toggle`); fuzzel is only the `Super+Shift+Space` fallback.
+
+`WorldMap.qml` is likewise a separate overlay — the Infinite Desktop minimap,
+toggled by the navbar's centre ring or `Super+Tab` (`worldmap` `IpcHandler`).
+See [Infinite Navigation](#infinite-navigation--the-world-map).
+
+### Wallpaper-driven theming
+
+`hypr-wallpaper <file>` handles **static images** (jpg/jpeg/png/webp — drawn by
+Quickshell `Wallpaper.qml`) and **animated wallpapers** (gif/mp4/webm/mkv —
+played by `mpvpaper`). For a video it extracts a representative frame with
+`ffmpeg`; wallust (`x11-misc/wallust`, guru) then derives the palette from that
+frame (or from the image, for a static wallpaper).
+
+**Two halves so it never looks frozen.** Under an `flock` (rapid clicks
+serialise, newest wins) `hypr-wallpaper` writes `wallpaper.state` atomically
+and nudges Quickshell — the *visual* change. Then, off the hot path, wallust
+regenerates the palette; a `gen=` stamp lets a superseded run bow out.
+`wallpaper.state` is the single source Quickshell reads (parsed in one pass, so
+`type` / still / video path are always consistent).
+
+**The diagonal wipe is one implementation for every transition** —
+static↔static, static↔animated, animated↔animated.
+`DiagonalWallpaperTransition.qml` renders the incoming still (image, or the
+video frame) revealed through an animated ~45° mask — a `MultiEffect` whose
+`maskThresholdMin` walks a corner-to-corner alpha gradient — sweeping from the
+**top-right corner to the bottom-left** over `Theme.wallpaperTransitionDuration`
+(800 ms, InOutCubic). No opacity mixing, no black gap. `Wallpaper.qml` sits on
+`WlrLayer.Bottom` (always above mpvpaper, which is on `Background`), keeps **two
+Image buffers with explicit per-buffer path tracking** (so switching back to a
+previously-loaded wallpaper never stalls — `Image.source` equality is never the
+sync mechanism), and drives the overlay. Rapid switches let the in-flight wipe
+finish, skip intermediates, converge on the newest.
+
+**mpvpaper lifecycle is Quickshell-timed.** While `qs` runs, `hypr-wallpaper`
+does *not* start/stop mpvpaper — it records the target and the previous pid.
+Quickshell starts the new one (`hypr-wallpaper --spawn-mpvpaper <video>`) as the
+wipe covers the screen, waits `Theme.wallpaperAnimatedGrace` for it to present,
+retires the old one by pid, dissolves the frame overlay into the live video,
+then `hypr-wallpaper --reap` kills any mpvpaper carrying our launch signature
+that is not the one in `wallpaper.state` — the "exactly 0 or 1 mpvpaper"
+guarantee (never a blind `pkill`). `hypr-wallpaper` keeps a long safety-net
+kill of the previous pid for the `qs`-not-running case. One dark scheme
+(`palette = "harddark"`) keeps panels dark whatever the wallpaper's hue.
+Regression test: `scripts/desktop/test_wallpaper_transition.sh`.
+
+`panels/WallpaperPicker.qml` is the visual selector (grid of thumbnails from
+`hypr-wallpaper --list-json`, which walks `<Pictures>/Wallpapers` recursively).
+Applying always shells out to `hypr-wallpaper <path>` — no wallpaper logic is
+duplicated in QML. `Super+W` or the navbar wallpaper button opens it.
+
+`config/quickshell/Theme.qml` is **structure + a resolver**: geometry, type and
+glyphs are static; colours come from `colors.json` via a watched `FileView` +
+`JsonAdapter` and are mapped onto semantic tokens (`background`, `surface`,
+`surfaceElevated`, `foreground`, `foregroundMuted`, `accent`, `accentSoft`,
+`accentSecondary`, `positive`, `urgent`, `border`, …). Every token has a
+baked-in fallback equal to `config/wallust/fallback/colors.json`, so Quickshell
+starts fine with no palette. `hypr-wallpaper --seed` (run once per fresh
+session by `autostart.lua`) copies that fallback into every target so the
+`include` / `source` lines in the mako / fuzzel / hyprlock configs always
+resolve. `hypr-wallpaper --reset` returns to the fallback and drops the image.
 
 The relevant module loads its `*.local.lua` after its own defaults, so the
 local file wins. `gpu.local.lua` specifically is never generated by anything
@@ -217,8 +322,18 @@ The `desktop-utils` group in `install/packages.gentoo` (all `required`):
 keyword, which `deps` prints), `gui-apps/wl-clipboard`, `gui-apps/grim`,
 `gui-apps/slurp`. `x11-libs/libnotify` (`recommended`) gives `notify-send`.
 
-- **Launcher** — `fuzzel`, bound to `Super+Space` in `lua/bindings.lua`.
-  Config `config/fuzzel/fuzzel.ini`, linked by `dotfiles`.
+- **Launcher** — the native Quickshell `config/quickshell/Launcher.qml`
+  (Caelestia-style: centred overlay, real `.desktop` icons, fuzzy search),
+  toggled by a `Super` tap or `Super+Space`. `fuzzel` stays installed as the
+  `Super+Shift+Space` fallback (config `config/fuzzel/fuzzel.ini`, linked by
+  `dotfiles`) in case Quickshell is not running.
+- **Wallpapers** — `scripts/desktop/hypr-wallpaper <file>` sets a static image
+  (Quickshell) or a video/GIF (`mpvpaper`), derives the palette from the image
+  or a `ffmpeg`-extracted frame, and stores one state file. Visual picker:
+  `config/quickshell/panels/WallpaperPicker.qml` (`Super+W`). Library:
+  `$HYPR_WALLPAPER_DIR`, else `<Pictures>/Wallpapers` (recursive). Backends:
+  `gui-apps/mpvpaper` + `media-video/ffmpeg` (`recommended`; static-only setups
+  can skip both).
 - **Screenshots** — `scripts/desktop/hypr-screenshot` (`full` / `region`, with
   `--copy`), linked to `~/.local/bin` by `dotfiles` and called from
   `lua/bindings.lua` (`Print` / `Super+Print` / `Super+Shift+S`). It writes
@@ -257,3 +372,111 @@ commands rather than failing a write as a non-root user); on this host the
 `udevadm control --reload` + `trigger` applied the ACL live, no logout. The
 keystroke-exposure risk and a stricter privileged-broker alternative are in
 [INFINITE-DESKTOP.md](INFINITE-DESKTOP.md#26-input-device-access).
+
+### Floating World — the window model
+
+`config/hypr/lua/floating-world.lua`. The desktop is a floating canvas, not a
+tiling grid — and the Infinite Desktop daemon only pans *floating* windows, so
+this is what makes the whole workspace pannable.
+
+- **Float by default.** `hl.window_rule{ match = { float = false }, float =
+  true, tag = "+fworld" }` floats every would-be-tiled window **at map time**
+  (no tile→float flash) and tags it. Windows Hyprland already floats (dialogs,
+  modals, transient tool windows, non-resizable windows) don't match the rule
+  and are left completely alone. Layer surfaces (Quickshell, fuzzel, hyprlock)
+  aren't windows — untouched by definition.
+- **Smart initial size.** `hl.on("window.open")` → `hl.timer` (event-driven, no
+  polling) → once mapped, a generic algorithm: respect a requested size that is
+  already reasonable (≥260×200, ≤85 % of the usable area); otherwise fall to a
+  per-class fraction (`fw.class_defaults`: terminal ~0.60, browser ~0.76×0.82,
+  file-manager/editor ~0.68, Blender/IDE ~0.82–0.85; generic 0.66×0.62), always
+  clamped to 85 %. A window that opened small and deliberate (≤52 % in both
+  dims) is treated as a dialog/tool/PiP — kept at its size, Hyprland's centred
+  placement untouched.
+- **Smart placement.** Anchor on `hl.get_last_window()` (the window focused
+  *before* this one opened), else the cursor, else centre. Try centred-on-anchor,
+  then a gentle down-right cascade, then an expanding 8-direction ring; score =
+  overlap area (px²) + a mild pull toward the anchor. Lands near the context
+  with little intersection, never exactly stacked. Not a perfect packer — fast
+  and natural.
+- **`Super+F` pseudo-maximize.** Toggle: save `{x,y,w,h}` (in memory + a file
+  under `$XDG_RUNTIME_DIR/hypr-fworld/` so it survives a `hyprctl reload`),
+  resize to ~96 % of the usable area, stay **floating**. `Super+F` again →
+  restore the exact saved geometry. Works indefinitely without drift. In real
+  fullscreen, `Super+F` drops out of it first. `Super+Shift+F` is real
+  fullscreen. A pseudo-maximized window is still a floating object on the
+  canvas and pans with Infinite Desktop.
+
+`hl.dsp.*` returns a dispatcher; a standalone call must go through
+`hl.dispatch(...)` (only `hl.bind` auto-executes). Loaded after `bindings.lua`
+(re-binds `Super+F`), before `infinite-desktop.lua`.
+
+### Infinite Navigation — the World Map
+
+A minimap of the whole floating canvas and a way to fly the camera to any
+window. No screenshots, no extra daemon, no continuous polling.
+
+- **World coordinates.** The Infinite Desktop daemon pans by *physically moving
+  every floating window*, so a stable coordinate needs a camera offset:
+  `worldX = window.at.x + camera.x`. `scripts/infinite-desktop/world.py` owns
+  `camera.json` (per workspace, under `$XDG_RUNTIME_DIR/infinite-desktop/`,
+  `flock` + atomic `os.replace`, no reboot persistence). Every code path that
+  pans — the daemon's `pan_other_windows` and main loop, `move_window.py`'s
+  edge-push, `navigate_windows.py`, `world_navigate.py` — calls
+  `world.bump_camera(ws, -dx, -dy)` right after moving windows, so world
+  positions stay put while the viewport slides.
+- **`world_navigate.py {address|class} <value>`.** Computes the delta that puts
+  the target's centre on the monitor's usable centre, then steps *every*
+  floating window on the workspace by that delta (`_smoothstep`, 11 frames) —
+  the exact pan mechanism, whole layout preserved — then focuses the target,
+  then bumps the camera. `class` mode cycles a multi-window app on repeated
+  calls (`cycle.json`, 3 s window). An `flock` (`.navigate.lock`) serialises
+  concurrent invocations so a burst of clicks each lands in turn.
+- **`config/quickshell/WorldMap.qml`.** A `Top`-layer overlay (namespace
+  `quickshell:worldmap`, blurred via a layer rule in `appearance.lua`). Reads
+  window geometry from `Hyprland.toplevels[].lastIpcObject` + `refreshToplevels()`
+  (on `rawEvent` open/close/move/title/focus/float, debounced; plus a 130 ms
+  timer *only while open* — and paused mid-edit — that refreshes and rebuilds,
+  so pan / pseudo-maximize / hand-edit geometry that emits no event still shows,
+  trailing reality by ≈one tick) and the camera from `camera.json` (`FileView`,
+  watched). Draws each window as a proportional rectangle (DesktopEntry icon +
+  class), the focused one accented, and the viewport rectangle (monitor usable
+  area). Auto-fits windows ∪ viewport with a margin; wheel = zoom 0.15×–4× of
+  the fit, drag empty space = pan the *map view* (never the real desktop).
+  Toggled from the navbar's centre ring or `Super+Tab` (`worldmap`
+  `IpcHandler` in `shell.qml`).
+- **Editing windows from the map.** A short click on a window still navigates
+  (`world_navigate.py`, map closes). A **drag past ~6 px on the body** moves it;
+  selecting a window shows small accent **resize handles** (4 corners + 4 edge
+  midpoints). Both preview live in QML (`ewx/ewy/ew/eh` in world coords, the
+  refresh loop paused so the delegate is not torn down under the cursor) and
+  apply once on release via **`scripts/infinite-desktop/world_edit.py geometry
+  <addr> <worldX> <worldY> <w> <h>`** — which reads `camera.json`, converts
+  `screen = world − camera`, moves+resizes in one `hyprctl` batch, leaves the
+  camera alone, and deletes the window's pseudo-maximize restore file. Minimum
+  220×140; no maximum (a window may be larger than the viewport); Hyprland still
+  applies the client's own size hints.
+- **Navbar.** `modules/WorldButton.qml` is the centre ring (active while the map
+  is open, tooltip "World Map"). `modules/OpenApps.qml` is a compact row of
+  open-app icons grouped by class (Quickshell / launcher / hyprlock excluded),
+  a count badge for multi-window apps; click → `world_navigate.py class <cls>`
+  (navigate, or cycle on repeat).
+
+### `lua/window-edit.lua` — desktop-side manipulation + the SUPER-tap guard
+
+`SUPER + LMB` drag moves a floating window and `SUPER + RMB` drag resizes it —
+the plain Hyprland interactive-drag binds (`hl.dsp.window.drag` / `.resize` with
+`{ mouse = true }`, in `lua/bindings.lua`, same as the stock config). This module
+adds the coherence around them:
+
+- **SUPER-tap guard.** A bare `SUPER` tap opens the launcher (release bind on
+  `Super_L`). Hyprland suppresses that after a `SUPER` + key combo but not
+  reliably after a `SUPER` + mouse drag, so `SUPER` + LMB/RMB *release*
+  (non-consuming) sets a "used with the mouse" flag that the re-bound `Super_L`
+  release swallows; the flag self-clears 700 ms after the gesture.
+- **Pseudo-maximize coherence.** `SUPER` + mouse press deletes the pseudo-max
+  restore file (`$XDG_RUNTIME_DIR/hypr-fworld/<addr>`) for the window under the
+  cursor — same as `world_edit.py` does for a map edit. `floating-world.lua`
+  reads that file fresh on every `SUPER + F`, so a hand-placed geometry becomes
+  the window's new "normal" instead of a stale box it snaps back to. Only the
+  edited window is affected.

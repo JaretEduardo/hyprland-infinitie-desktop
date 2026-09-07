@@ -1,0 +1,5 @@
+# fallback palette (seeded by `hypr-wallpaper --seed`) — machine-local.
+background-color=#2f2430f2
+text-color=#f1e2ecff
+border-color=#e6c4d8ff
+progress-color=over #a87f95ff

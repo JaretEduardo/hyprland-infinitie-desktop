@@ -14,6 +14,11 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hypr_ipc import hyprctl_json, move_window_exact_lua, batch_async, dispatch
 
+try:
+    import world as _world
+except Exception:
+    _world = None
+
 STEP = 90
 
 
@@ -101,6 +106,12 @@ def main():
             oy = w["at"][1] - dy
             exprs.append(move_window_exact_lua(ox, oy, w["address"]))
         batch_async(exprs)
+        # others panned by (-dx, -dy) -> camera the other way
+        if exprs and _world is not None:
+            try:
+                _world.bump_camera(workspace_id, dx, dy)
+            except Exception:
+                pass
     else:
         # Sin borde: mover solo la ventana activa el paso completo
         dispatch(move_window_exact_lua(new_x, new_y, addr))

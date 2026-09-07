@@ -1,0 +1,32 @@
+#!/bin/sh
+#
+# hypr-weather — print a one-line weather string, or NOTHING if not configured.
+# Used by hyprlock's optional weather label (the label hides itself when this
+# prints an empty string).
+#
+# OPT-IN and OFF by default. It only does anything if you create:
+#   ~/.config/hypr/weather.conf     with:   LOCATION="Madrid"
+# (any wttr.in location string: a city, "Lat,Lon", an airport code, ...).
+#
+# When configured it makes ONE outbound HTTPS request to https://wttr.in with a
+# 4-second timeout, sending only your configured LOCATION string. No location =
+# no request. Delete weather.conf to turn it back off.
+#
+# No root. Installed to ~/.local/bin by `install.sh dotfiles`.
+
+set -u
+
+conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/weather.conf"
+[ -r "$conf" ] || exit 0
+
+LOCATION=""
+UNITS="m"            # m = metric (°C), u = US (°F)
+# shellcheck disable=SC1090
+. "$conf" 2>/dev/null || exit 0
+[ -n "${LOCATION:-}" ] || exit 0
+command -v curl >/dev/null 2>&1 || exit 0
+
+fmt="%c+%t"
+enc=$(printf '%s' "$LOCATION" | sed 's/ /%20/g')
+curl -fsS --max-time 4 "https://wttr.in/${enc}?format=${fmt}&${UNITS}" 2>/dev/null \
+    | tr -d '\n' | cut -c1-40

@@ -46,11 +46,28 @@ hyprland | sys-apps/xdg-desktop-portal-gtk      | ::gentoo    | required    | po
 hyprland | sys-auth/polkit                      | ::gentoo    | required    | privilege prompts (the polkit daemon)
 hyprland | sys-auth/hyprpolkitagent             | hyproverlay | required    | polkit *agent* that renders the prompts; lua/autostart.lua starts its systemd user unit hyprpolkitagent.service. Replaces a manual polkit-gnome/-kde agent.
 hyprland | gui-apps/foot                        | ::gentoo    | required    | terminal: lua/bindings.lua's Super+Return runs $TERMINAL, falling back to `foot`. Set $TERMINAL + install that instead if you prefer another.
-hyprland | gui-apps/hyprpaper                   | hyproverlay | optional    | wallpaper daemon
+hyprland | gui-apps/hyprpaper                   | hyproverlay | optional    | wallpaper daemon — NOT used here: Quickshell (Wallpaper.qml) draws static wallpapers, mpvpaper draws animated ones
 hyprland | gui-apps/hyprpicker                  | hyproverlay | optional    | colour picker
 
 # ---- Quickshell (this project uses Quickshell, not Waybar) ---------------
 quickshell | gui-apps/quickshell | guru | required | the bar / shell
+
+# ---- wallpaper-driven theming + wallpaper backends ---------------------
+# `hypr-wallpaper <file>` sets the wallpaper (static image OR video/GIF) and
+# runs `wallust run` to derive the whole UI palette (Quickshell, Hyprland
+# borders, mako, fuzzel, hyprlock) from the image — or from a representative
+# frame of the video. Config: config/wallust/ (linked by `install.sh
+# dotfiles`). Without wallust the desktop still runs on the tracked fallback
+# palette (hypr-wallpaper --seed); only re-theming from a new wallpaper needs
+# it. guru overlay: `install.sh deps` prints the per-package ~amd64 line.
+#
+# Backends, one each: static = Quickshell (no atom), animated = mpvpaper,
+# frame/thumbnail extraction = ffmpeg. mpvpaper's lifecycle is managed by
+# hypr-wallpaper (it tracks the one pid it started — never `pkill mpvpaper`).
+theming | x11-misc/wallust    | guru     | required    | wallpaper -> palette generator (hypr-wallpaper). guru overlay: add `x11-misc/wallust ~amd64` to /etc/portage/package.accept_keywords/
+theming | gui-apps/mpvpaper   | guru     | recommended | animated (video/GIF) wallpaper backend. guru overlay: add `gui-apps/mpvpaper ~amd64` to /etc/portage/package.accept_keywords/. Static-only setups can skip it.
+theming | media-video/ffmpeg  | ::gentoo | recommended | extract a frame from video/GIF wallpapers — for the palette source and the WallpaperPicker thumbnails (scripts/desktop/wallpaper-thumb). Usually already in @system.
+theming | net-misc/curl       | ::gentoo | optional    | ONLY for the opt-in lock-screen weather (scripts/desktop/hypr-weather, off unless ~/.config/hypr/weather.conf exists). Usually already in @system.
 
 # ---- notifications -----------------------------------------------------
 # Wayland notification daemon. Owns the D-Bus name org.freedesktop.Notifications
@@ -75,9 +92,11 @@ desktop-utils | gui-apps/slurp        | ::gentoo | required | region selector fo
 # use the fontconfig aliases `sans-serif` / `monospace`. Something must back
 # those aliases. dejavu is the small, stable, zero-keyword baseline; noto adds
 # broad Unicode + a colour-emoji font. `doctor` checks `fc-match`.
-fonts | media-fonts/dejavu     | ::gentoo | required    | sans/serif/mono baseline for the `sans-serif` / `monospace` fontconfig aliases
-fonts | media-fonts/noto       | ::gentoo | recommended | broad Unicode coverage (Noto Sans/Serif/Mono). ~amd64: add `media-fonts/noto ~amd64` to /etc/portage/package.accept_keywords/
-fonts | media-fonts/noto-emoji | ::gentoo | recommended | colour emoji — no repo config uses emoji glyphs, but notifications / web content do. ~amd64.
+fonts | media-fonts/dejavu           | ::gentoo | required    | sans/serif/mono baseline for the `sans-serif` / `monospace` fontconfig aliases
+fonts | media-fonts/fira-sans        | ::gentoo | required    | the Quickshell display font ("Fira Sans" — config/quickshell/Theme.qml fontFamily)
+fonts | media-fonts/symbols-nerd-font | ::gentoo | required    | icon glyphs for the bar / dashboard ("Symbols Nerd Font" — Theme.qml iconFamily). ~amd64: add `media-fonts/symbols-nerd-font ~amd64` to /etc/portage/package.accept_keywords/
+fonts | media-fonts/noto             | ::gentoo | recommended | broad Unicode coverage (Noto Sans/Serif/Mono). ~amd64: add `media-fonts/noto ~amd64` to /etc/portage/package.accept_keywords/
+fonts | media-fonts/noto-emoji       | ::gentoo | recommended | colour emoji — no repo config uses emoji glyphs, but notifications / web content do. ~amd64.
 
 # ---- audio (PipeWire) ---------------------------------------------------
 # Install AND enable the user units — they are socket-activated, not started

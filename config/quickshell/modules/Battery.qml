@@ -1,26 +1,29 @@
-// modules/Battery.qml — battery percentage + charge state.
-// Reactive over UPower's D-Bus signals (property bindings), no polling.
-// Cleanly hides on a desktop with no battery (isLaptopBattery false).
-// https://quickshell.org/docs/v0.3.0/types/Quickshell.Services.UPower/UPower/
-
+// modules/Battery.qml — icon + %, reactive over UPower. Hides on a desktop.
 import QtQuick
 import Quickshell.Services.UPower
+import "root:/"
 
-Text {
+Row {
     id: root
+    spacing: Theme.gap
+
     readonly property var device: UPower.displayDevice
-
+    readonly property int pct: device.ready ? Math.round(device.percentage * 100) : 0
+    readonly property bool charging: device.state === UPowerDeviceState.Charging
+                                  || device.state === UPowerDeviceState.PendingCharge
+    readonly property bool low: pct <= 15 && !charging
     visible: device.ready && device.isLaptopBattery
-    font.pixelSize: 12
-    color: {
-        const low = device.percentage <= 0.15 && device.state !== UPowerDeviceState.Charging;
-        return low ? "#f7768e" : "#c0caf5";
-    }
 
-    text: {
-        const pct = Math.round(device.percentage * 100);
-        const charging = device.state === UPowerDeviceState.Charging
-                       || device.state === UPowerDeviceState.PendingCharge;
-        return (charging ? "CHG " : "BAT ") + pct + "%";
+    Text {
+        font.family: Theme.iconFamily
+        font.pixelSize: Theme.iconSize
+        color: root.low ? Theme.accent : (root.charging ? Theme.positive : Theme.foreground)
+        text: root.charging ? Theme.icon.batteryChg : (root.low ? Theme.icon.batteryLow : Theme.icon.battery)
+    }
+    Text {
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSizeSmall
+        color: root.low ? Theme.accent : Theme.foregroundMuted
+        text: root.pct + "%"
     }
 }

@@ -1,0 +1,12 @@
+{
+  "background": "{{ background }}",
+  "foreground": "{{ foreground }}",
+  "dark":       "{{ background | darken(0.42) }}",
+  "surface":    "{{ background | lighten(0.16) }}",
+  "muted":      "{{ foreground | darken(0.30) }}",
+  "accent":     "{{ color5 | saturate(0.20) }}",
+  "accent2":    "{{ color4 | saturate(0.12) }}",
+  "good":       "{{ color2 | saturate(0.15) }}",
+  "bad":        "{{ color1 | saturate(0.35) }}",
+  "line":       "{{ color5 | darken(0.18) }}"
+}

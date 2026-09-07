@@ -26,12 +26,16 @@ local function load(mod)
 end
 
 -- Deliberate order: environment first, monitors, input, appearance, binds,
--- laptop, then autostart, and Infinite Desktop last (it overrides some binds).
+-- then floating-world (the window model — re-binds SUPER + F), window-edit
+-- (SUPER-tap guard + pseudo-max coherence), laptop, autostart, and Infinite
+-- Desktop last (it overrides some binds).
 load("lua/env")
 load("lua/monitors")
 load("lua/input")
 load("lua/appearance")
 load("lua/bindings")
+load("lua/floating-world")
+load("lua/window-edit")
 load("lua/laptop")
 load("lua/autostart")
 load("lua/infinite-desktop")

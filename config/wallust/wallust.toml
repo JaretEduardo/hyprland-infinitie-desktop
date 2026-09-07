@@ -1,0 +1,37 @@
+# wallust — wallpaper-driven theming for this workstation.
+#
+# `hypr-wallpaper <image>` runs `wallust run <image>`; wallust extracts a
+# palette and renders every template below into its machine-local target.
+# Those targets are git-ignored, per-machine, and sit beside the managed
+# symlinks (same idea as ~/.config/hypr/monitors.local.lua).
+#
+# This file is deployed to ~/.config/wallust/wallust.toml by
+# `install.sh dotfiles --apply`. Nothing is applied until hypr-wallpaper (or
+# `wallust run`) is invoked by hand.
+#
+# Docs: man wallust.5 · https://explosion-mental.codeberg.page/wallust/
+
+# How pixels are read from the image. "fastresize" is SIMD-accelerated and
+# needs no ImageMagick (unlike the "wal" backend).
+backend = "fastresize"
+
+# Colourspace used to gather + sort the most prominent colours.
+color_space = "lchmixed"
+
+# Scheme. A "dark" family always yields a dark background + light foreground —
+# this is what keeps the panels dark and the text readable even when the
+# wallpaper is bright. "harddark" keeps the accent hues saturated.
+palette = "harddark"
+
+# Nudge the foreground until it has a readable contrast against the
+# background. Cheap insurance for awkward images.
+check_contrast = true
+
+[templates]
+# template : path relative to ~/.config/wallust/templates/
+# target   : absolute path (‘~’ and ${ENV} are expanded) for the rendered file
+quickshell = { template = 'quickshell-colors.json', target = '~/.cache/hyprland-infinitie-desktop/colors.json' }
+hyprland   = { template = 'hyprland-colors.lua',    target = '~/.config/hypr/colors.local.lua' }
+mako       = { template = 'mako-colors.local',      target = '~/.config/mako/colors.local' }
+fuzzel     = { template = 'fuzzel-colors.local.ini', target = '~/.config/fuzzel/colors.local.ini' }
+hyprlock   = { template = 'hyprlock-colors.local.conf', target = '~/.config/hypr/hyprlock-colors.local.conf' }

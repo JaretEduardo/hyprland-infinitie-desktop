@@ -19,13 +19,31 @@ end
 hl.bind(mod .. " + Return", hl.dsp.exec_cmd(terminal))
 hl.bind(mod .. " + Q",      hl.dsp.window.close())
 hl.bind(mod .. " + V",      hl.dsp.window.float({ action = "toggle" }))
+-- SUPER + F is re-bound by lua/floating-world.lua to pseudo-maximize (real
+-- fullscreen moves to SUPER + SHIFT + F). This line is the fallback if that
+-- module fails to load.
 hl.bind(mod .. " + F",      hl.dsp.window.fullscreen({ action = "toggle" }))
 hl.bind(mod .. " + P",      hl.dsp.window.pseudo())
 hl.bind(mod .. " + T",      hl.dsp.layout("togglesplit"))     -- dwindle
 
--- Launcher (config/fuzzel/fuzzel.ini). SUPER + D is Infinite Desktop's
--- floating/tiled toggle, so the launcher is on SUPER + Space.
-hl.bind(mod .. " + Space", hl.dsp.exec_cmd("fuzzel"))
+-- Launcher — the native Quickshell one (config/quickshell/Launcher.qml):
+--   * a plain SUPER tap-and-release (release = true, so it does NOT fire when
+--     SUPER was part of a combo like SUPER+W)
+--   * SUPER + Space as well
+-- fuzzel stays installed as a fallback: SUPER + SHIFT + Space, in case
+-- Quickshell is not running.
+hl.bind(mod .. " + Super_L", hl.dsp.exec_cmd("qs ipc call launcher toggle"), { release = true })
+hl.bind(mod .. " + Space",         hl.dsp.exec_cmd("qs ipc call launcher toggle"))
+hl.bind(mod .. " + SHIFT + Space", hl.dsp.exec_cmd("fuzzel"))
+
+-- Wallpaper picker — the Quickshell panel docked under the navbar
+-- (config/quickshell/panels/WallpaperPicker.qml). Same panel the navbar's
+-- wallpaper button opens.
+hl.bind(mod .. " + W", hl.dsp.exec_cmd("qs ipc call panel toggle wallpapers"))
+
+-- World Map — the Infinite Desktop minimap (config/quickshell/WorldMap.qml).
+-- Same overlay the navbar centre ring opens. (Alt+Tab is not bound.)
+hl.bind(mod .. " + Tab", hl.dsp.exec_cmd("qs ipc call worldmap toggle"))
 
 -- Screenshots -> ~/.local/bin/hypr-screenshot (scripts/desktop/hypr-screenshot,
 -- linked by dotfiles). Files go to <Pictures>/Screenshots/, region + Super+Print

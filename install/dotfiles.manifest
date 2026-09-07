@@ -20,6 +20,8 @@ config | config/hypr/lua/monitors.lua          | hypr/lua/monitors.lua
 config | config/hypr/lua/input.lua             | hypr/lua/input.lua
 config | config/hypr/lua/appearance.lua        | hypr/lua/appearance.lua
 config | config/hypr/lua/bindings.lua          | hypr/lua/bindings.lua
+config | config/hypr/lua/floating-world.lua    | hypr/lua/floating-world.lua
+config | config/hypr/lua/window-edit.lua       | hypr/lua/window-edit.lua
 config | config/hypr/lua/laptop.lua            | hypr/lua/laptop.lua
 config | config/hypr/lua/autostart.lua         | hypr/lua/autostart.lua
 config | config/hypr/lua/infinite-desktop.lua  | hypr/lua/infinite-desktop.lua
@@ -46,11 +48,23 @@ config | config/xdg-desktop-portal/hyprland-portals.conf | xdg-desktop-portal/hy
 # hyprland.lua — the old patch_hyprland.py mechanism has been removed.
 
 # ---- Quickshell (modular bar; targets Quickshell 0.3.0) -------------------
-# Per-file, not a whole-directory link, so ~/.config/quickshell/{,modules,services}
+# Per-file, not a whole-directory link, so ~/.config/quickshell/{,panels,modules,services}
 # stay real directories for future machine-local additions.
 config | config/quickshell/shell.qml               | quickshell/shell.qml
+config | config/quickshell/Theme.qml                | quickshell/Theme.qml
 config | config/quickshell/Bar.qml                  | quickshell/Bar.qml
+config | config/quickshell/Wallpaper.qml            | quickshell/Wallpaper.qml
+config | config/quickshell/DiagonalWallpaperTransition.qml | quickshell/DiagonalWallpaperTransition.qml
+config | config/quickshell/Launcher.qml             | quickshell/Launcher.qml
+config | config/quickshell/WorldMap.qml             | quickshell/WorldMap.qml
+config | config/quickshell/PanelHost.qml            | quickshell/PanelHost.qml
+config | config/quickshell/panels/ControlsPanel.qml      | quickshell/panels/ControlsPanel.qml
+config | config/quickshell/panels/StatsPanel.qml         | quickshell/panels/StatsPanel.qml
+config | config/quickshell/panels/NotificationsPanel.qml | quickshell/panels/NotificationsPanel.qml
+config | config/quickshell/panels/WallpaperPicker.qml    | quickshell/panels/WallpaperPicker.qml
 config | config/quickshell/modules/Workspaces.qml   | quickshell/modules/Workspaces.qml
+config | config/quickshell/modules/WorldButton.qml  | quickshell/modules/WorldButton.qml
+config | config/quickshell/modules/OpenApps.qml     | quickshell/modules/OpenApps.qml
 config | config/quickshell/modules/ActiveWindow.qml | quickshell/modules/ActiveWindow.qml
 config | config/quickshell/modules/Clock.qml        | quickshell/modules/Clock.qml
 config | config/quickshell/modules/Battery.qml      | quickshell/modules/Battery.qml
@@ -59,7 +73,30 @@ config | config/quickshell/modules/Audio.qml        | quickshell/modules/Audio.q
 config | config/quickshell/modules/Brightness.qml   | quickshell/modules/Brightness.qml
 config | config/quickshell/modules/SystemStats.qml  | quickshell/modules/SystemStats.qml
 config | config/quickshell/modules/NvidiaGpu.qml    | quickshell/modules/NvidiaGpu.qml
+config | config/quickshell/modules/Slider.qml       | quickshell/modules/Slider.qml
+config | config/quickshell/modules/MediaPlayer.qml  | quickshell/modules/MediaPlayer.qml
+config | config/quickshell/modules/LavatBlob.qml    | quickshell/modules/LavatBlob.qml
 config | config/quickshell/services/Frame.qml       | quickshell/services/Frame.qml
+
+# ---- wallpaper-driven theming (wallust) ---------------------------------
+# wallust config + templates. `hypr-wallpaper` renders the templates into
+# machine-local, git-ignored targets ($XDG_CACHE_HOME/hyprland-infinitie-
+# desktop/colors.json, ~/.config/hypr/colors.local.lua, ~/.config/mako/
+# colors.local, ~/.config/fuzzel/colors.local.ini, ~/.config/hypr/
+# hyprlock-colors.local.conf) — those sit beside the symlinks and are never
+# in git (same rule as monitors.local.lua). hypr-wallpaper also writes
+# ~/.config/hypr/hyprlock-image.local.conf ($lock_image = the still wallpaper
+# or a cached video frame) and $XDG_CACHE_HOME/.../wallpaper.state (the single
+# source of truth: type/path/palette_source/backend/pid). The fallback/
+# palette is read straight from the repo by `hypr-wallpaper --seed`, not linked.
+config | config/wallust/wallust.toml                          | wallust/wallust.toml
+config | config/wallust/templates/quickshell-colors.json      | wallust/templates/quickshell-colors.json
+config | config/wallust/templates/hyprland-colors.lua         | wallust/templates/hyprland-colors.lua
+config | config/wallust/templates/mako-colors.local           | wallust/templates/mako-colors.local
+config | config/wallust/templates/fuzzel-colors.local.ini     | wallust/templates/fuzzel-colors.local.ini
+config | config/wallust/templates/hyprlock-colors.local.conf  | wallust/templates/hyprlock-colors.local.conf
+# Wallpaper image stays wherever you keep it — `hypr-wallpaper <image>` records
+# its path in $XDG_CACHE_HOME/hyprland-infinitie-desktop/wallpaper.path.
 
 # ---- helper CLIs linked onto PATH (~/.local/bin) -------------------------
 # modules/NvidiaGpu.qml calls `nvidia-compute-mode` by name (PATH lookup, with
@@ -70,3 +107,16 @@ config | config/quickshell/services/Frame.qml       | quickshell/services/Frame.
 home | bin/nvidia-compute-mode       | .local/bin/nvidia-compute-mode
 home | bin/nvidia-offload            | .local/bin/nvidia-offload
 home | scripts/desktop/hypr-screenshot | .local/bin/hypr-screenshot
+# hypr-wallpaper: set wallpaper (static image or video/GIF) + regenerate the
+# palette (wallust). Called by name from lua/autostart.lua (--seed), lua/
+# bindings.lua (Super+W via `qs ipc call panel toggle wallpapers`), the
+# Quickshell WallpaperPicker, and by hand as `hypr-wallpaper <file>`.
+home | scripts/desktop/hypr-wallpaper  | .local/bin/hypr-wallpaper
+# wallpaper-thumb: extract/cache a thumbnail frame for video/GIF wallpapers;
+# used by `hypr-wallpaper --list-json` to feed the WallpaperPicker grid.
+home | scripts/desktop/wallpaper-thumb | .local/bin/wallpaper-thumb
+# hypr-greeting: time-of-day greeting for the hyprlock greeting label (cmd[]).
+home | scripts/desktop/hypr-greeting   | .local/bin/hypr-greeting
+# hypr-weather: optional one-line weather for the hyprlock weather label.
+# OFF unless ~/.config/hypr/weather.conf exists (then one opt-in wttr.in call).
+home | scripts/desktop/hypr-weather    | .local/bin/hypr-weather

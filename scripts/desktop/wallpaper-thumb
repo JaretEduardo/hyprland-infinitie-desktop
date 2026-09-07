@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+#
+# wallpaper-thumb <file> — print a path to a thumbnail for <file>, generating it
+# if missing or stale. Used by `hypr-wallpaper --list-json` (and callable on its
+# own) to feed the Quickshell WallpaperPicker grid.
+#
+#   images (jpg/jpeg/png/webp) : printed as-is — Quickshell downsamples via
+#                                Image.sourceSize, so a separate file is waste.
+#   video / GIF (gif/mp4/webm/mkv) : a single frame extracted with ffmpeg into
+#                                ~/.cache/hyprland-infinitie-desktop/wallpaper-thumbs/
+#                                keyed by realpath + mtime + size, so it is only
+#                                regenerated when the source actually changes.
+#
+# No root. Installed to ~/.local/bin by `install.sh dotfiles`.
+
+set -u
+
+f="${1:-}"
+[ -n "$f" ] || { echo "usage: wallpaper-thumb <file>" >&2; exit 2; }
+src="$(readlink -f -- "$f" 2>/dev/null || true)"
+[ -n "$src" ] && [ -f "$src" ] || { echo "wallpaper-thumb: not a file: $f" >&2; exit 1; }
+
+ext="$(printf '%s' "${src##*.}" | tr '[:upper:]' '[:lower:]')"
+case "$ext" in
+    jpg|jpeg|png|webp) printf '%s\n' "$src"; exit 0 ;;
+    gif|mp4|webm|mkv)  : ;;
+    *)                 printf '%s\n' "$src"; exit 0 ;;
+esac
+
+command -v ffmpeg >/dev/null 2>&1 || { printf '%s\n' "$src"; exit 0; }
+
+dir="${XDG_CACHE_HOME:-$HOME/.cache}/hyprland-infinitie-desktop/wallpaper-thumbs"
+mkdir -p -- "$dir" || { printf '%s\n' "$src"; exit 0; }
+
+key="$(printf '%s' "$src" | sha1sum | cut -c1-16)"
+stamp="$(stat -c '%Y-%s' -- "$src" 2>/dev/null || echo 0)"
+out="$dir/$key-$stamp.jpg"
+
+if [ ! -s "$out" ]; then
+    # prune older thumbs for this source so the cache does not grow unbounded
+    rm -f -- "$dir/$key-"*.jpg 2>/dev/null || true
+    ffmpeg -y -loglevel error -ss 3 -i "$src" -frames:v 1 -vf "scale=480:-2" "$out" 2>/dev/null \
+        || ffmpeg -y -loglevel error -i "$src" -frames:v 1 -vf "scale=480:-2" "$out" 2>/dev/null \
+        || { printf '%s\n' "$src"; exit 0; }
+fi
+
+printf '%s\n' "$out"

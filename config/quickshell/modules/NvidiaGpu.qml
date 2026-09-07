@@ -1,34 +1,26 @@
-// modules/NvidiaGpu.qml — frontend for bin/nvidia-compute-mode. No NVIDIA logic
-// lives here: every fact and every state change goes through that backend's
-// `status --json` / `eco` / `compute` (and, only on explicit user confirmation,
-// `status --json --deep`). This file only shells out, parses JSON, and renders.
+// modules/NvidiaGpu.qml — frontend for bin/nvidia-compute-mode. UNCHANGED
+// backend: every fact and every state change still goes through that CLI's
+// `status --json` / `eco` / `compute` (and, only on explicit user confirm,
+// `status --json --deep`). This file only shells out, parses JSON, and renders
+// — now in the Theme palette, as a compact bar pill + a popup.
 //
-// Energy rule (see docs/HYBRID-GPU.md): while Policy=ECO, the automatic refresh
-// timer NEVER passes --deep, even when Runtime is "active". --deep only runs
-// (a) automatically while Policy=COMPUTE, where keeping the GPU awake is
-// intentional, or (b) once, after the user explicitly confirms the
-// "may wake the GPU" warning via "Show detailed metrics".
-//
-// Two separate concepts are kept visually separate, per the backend's own
-// design: Policy (eco|compute, requested) vs. observed Runtime PM state
-// (active|suspended|...) vs. PCI power state (D0|D3hot|D3cold|unknown).
-// "ACTIVE" is never treated as a policy — it only ever comes from runtimePm.
-
+// Energy rule (docs/HYBRID-GPU.md): while Policy=ECO the auto-refresh timer
+// NEVER passes --deep, even when Runtime is "active".
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "root:/"
 
 Item {
     id: root
 
-    // The Bar's PanelWindow, so the popup can anchor under it.
-    property var panelWindow: null
+    property var bar: null
 
     implicitWidth: pill.implicitWidth
     implicitHeight: pill.implicitHeight
     visible: present
 
-    // ---- backend-reported state (nothing here is computed independently) ----
+    // ---- backend-reported state (nothing computed independently) --------
     property bool present: false
     property string policy: "eco"
     property string backend: "auto"
@@ -39,8 +31,8 @@ Item {
     property string driver: ""
     property string moduleVersion: ""
     property int clientsDetected: 0
-    property var clients: []            // [{pid, comm}, ...]
-    property var deep: null             // {name, temp_c, util_pct, ...} or null
+    property var clients: []
+    property var deep: null
 
     property bool busy: false
     property string lastError: ""
@@ -48,20 +40,15 @@ Item {
     property string _lastActionOutput: ""
 
     readonly property bool backendUnresolved: backend === "auto" || backend === "none"
+    readonly property bool activeUnderEco: policy === "eco" && runtimePm === "active"
 
-    readonly property string compactLabel: {
-        if (!present) return "";
-        // ECO + already active is the one case worth flagging in the compact
-        // pill (something is keeping the GPU awake right now); COMPUTE+active
-        // is simply COMPUTE working as intended, so it stays labelled COMPUTE.
-        if (policy === "eco" && runtimePm === "active") return "NVIDIA · ACTIVE";
-        return "NVIDIA · " + policy.toUpperCase();
-    }
+    readonly property color dotColor:
+          !present                       ? Theme.foregroundMuted
+        : policy === "compute"           ? Theme.accent
+        : runtimePm === "suspended"      ? Theme.positive
+        : activeUnderEco                 ? Theme.accent
+        : Theme.foregroundMuted
 
-    // ------------------------------------------------------------------
-    // status query. Always goes through the backend; never reads sysfs or
-    // runs nvidia-smi directly. `deep` must only be true from the COMPUTE
-    // timer or an explicit confirmed user action — see call sites below.
     function refresh(deep) {
         if (statusProc.running) return;
         const extra = deep ? " --deep" : "";
@@ -70,24 +57,14 @@ Item {
             "nvidia-compute-mode status --json" + extra +
             " || echo '{\"present\":false}'"]);
     }
-
     function _applyStatus(text) {
         let j;
-        try {
-            j = JSON.parse(text);
-        } catch (e) {
-            // backend missing / produced garbage — degrade cleanly, no crash.
-            root.present = false;
-            return;
-        }
+        try { j = JSON.parse(text); } catch (e) { root.present = false; return; }
         root.policy = j.policy || "eco";
         root.backend = j.backend || "auto";
         root.backendActive = !!j.backend_active;
         root.present = !!j.present;
-        if (!root.present) {
-            root.deep = null;
-            return;
-        }
+        if (!root.present) { root.deep = null; return; }
         root.runtimePm = j.runtime_pm_state || "unknown";
         root.pciPower = j.pci_power_state || "unknown";
         root.d3coldConfirmed = !!j.d3cold_confirmed;
@@ -100,20 +77,11 @@ Item {
 
     Process {
         id: statusProc
-        stdout: StdioCollector {
-            onStreamFinished: root._applyStatus(this.text)
-        }
+        stdout: StdioCollector { onStreamFinished: root._applyStatus(this.text) }
     }
-
-    // ---- policy actions -------------------------------------------------
-    // Never writes power/control or calls sudo itself — that boundary lives
-    // entirely in bin/nvidia-compute-mode. A failed transition (e.g. missing
-    // privilege, unresolved backend) is surfaced, never hidden as success.
     Process {
         id: actionProc
-        stdout: StdioCollector {
-            onStreamFinished: root._lastActionOutput = this.text
-        }
+        stdout: StdioCollector { onStreamFinished: root._lastActionOutput = this.text }
         onRunningChanged: {
             if (running) return;
             root.busy = false;
@@ -121,175 +89,164 @@ Item {
             const code = m ? parseInt(m[1], 10) : -1;
             root.lastError = (code === 0) ? ""
                 : (root._lastActionOutput.replace(/QS_EXIT:-?\d+\s*$/, "").trim() || ("exit " + code));
-            // Always re-query the real state afterward instead of assuming success.
             root.refresh(root.policy === "compute");
         }
     }
-
     function _runAction(action) {
         if (root.busy) return;
-        root.busy = true;
-        root.confirmingDeep = false;
-        root._lastActionOutput = "";
+        root.busy = true; root.confirmingDeep = false; root._lastActionOutput = "";
         actionProc.exec(["sh", "-c",
             "command -v nvidia-compute-mode >/dev/null 2>&1 && nvidia-compute-mode " +
             action + " 2>&1; echo QS_EXIT:$?"]);
     }
     function setEco() { _runAction("eco"); }
     function setCompute() { _runAction("compute"); }
-
-    // ---- explicit, confirmed deep metrics (ECO only; COMPUTE polls automatically) ----
     function requestDeepMetrics() {
         if (root.policy === "compute") { root.refresh(true); return; }
         if (!root.confirmingDeep) { root.confirmingDeep = true; return; }
         root.confirmingDeep = false;
-        root.refresh(true); // the one explicit, user-confirmed deep probe
+        root.refresh(true);
     }
 
-    Component.onCompleted: root.refresh(false) // first call is always non-deep
-
-    // ECO: 4.5s, status only. COMPUTE: 3s, deep allowed (GPU meant to stay awake).
+    Component.onCompleted: root.refresh(false)
     Timer {
         interval: root.policy === "compute" ? 3000 : 4500
-        running: root.present
-        repeat: true
+        running: root.present; repeat: true
         onTriggered: root.refresh(root.policy === "compute")
     }
 
-    // ---- compact bar pill -------------------------------------------------
-    Rectangle {
+    // ---- compact pill ------------------------------------------------
+    MouseArea {
         id: pill
-        implicitWidth: label.implicitWidth + 16
-        implicitHeight: 20
-        radius: 5
-        color: popup.visible ? "#2a2e3f" : "transparent"
-        anchors.verticalCenter: parent.verticalCenter
+        implicitWidth: pillRow.implicitWidth
+        implicitHeight: pillRow.implicitHeight
+        cursorShape: Qt.PointingHandCursor
+        onClicked: popup.visible = !popup.visible
 
-        Text {
-            id: label
-            anchors.centerIn: parent
-            font.pixelSize: 12
-            color: root.policy === "eco" && root.runtimePm === "active" ? "#e0af68" : "#c0caf5"
-            text: root.compactLabel
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: popup.visible = !popup.visible
+        Row {
+            id: pillRow
+            spacing: Theme.gap
+            Text {
+                font.family: Theme.iconFamily; font.pixelSize: Theme.iconSize
+                color: root.activeUnderEco ? Theme.accent : Theme.foregroundMuted
+                text: Theme.icon.gpu
+            }
+            Rectangle {
+                width: 6; height: 6; radius: 3
+                y: 4
+                color: root.dotColor
+            }
         }
     }
 
-    // ---- detail popup -------------------------------------------------
+    // ---- detail popup ----------------------------------------------
     PopupWindow {
         id: popup
-        anchor.window: root.panelWindow
-        anchor.rect.x: root.panelWindow ? root.panelWindow.width - width - 10 : 0
-        anchor.rect.y: root.panelWindow ? root.panelWindow.height : 0
+        anchor.window: root.bar
+        anchor.rect.x: root.bar ? root.bar.width - width - Theme.spacing : 0
+        anchor.rect.y: root.bar ? root.bar.height + 6 : 0
         implicitWidth: 300
-        implicitHeight: content.implicitHeight + 20
+        implicitHeight: content.implicitHeight + 24
         visible: false
-        color: "#1a1b26"
+        color: "transparent"
 
-        Column {
-            id: content
-            x: 10
-            y: 10
-            width: parent.width - 20
-            spacing: 6
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.panelBg
+            radius: Theme.radiusMedium
+            border.width: 1
+            border.color: Theme.withAlpha(Theme.border, 0.7)
 
-            Text { font.pixelSize: 13; font.bold: true; color: "#c0caf5"; text: "NVIDIA" }
+            Column {
+                id: content
+                x: 14; y: 12
+                width: parent.width - 28
+                spacing: Theme.spacingSmall
 
-            Text { color: "#c0caf5"; font.pixelSize: 12; text: "Policy: " + root.policy.toUpperCase() }
-            Text {
-                color: "#c0caf5"; font.pixelSize: 12
-                text: "Backend: " + root.backend + (root.backendUnresolved ? "  (unresolved)" : "")
-            }
-            Text {
-                visible: root.backendUnresolved
-                color: "#e0af68"; font.pixelSize: 11; wrapMode: Text.WordWrap; width: parent.width
-                text: root.policy === "compute"
-                    ? "COMPUTE is recorded, but no keep-awake mechanism is active yet — the GPU will still follow RTD3."
-                    : "No keep-awake mechanism is configured. Resolve a real backend on Gentoo first-run before relying on COMPUTE."
-            }
+                Row {
+                    spacing: Theme.spacingSmall
+                    Text { font.family: Theme.iconFamily; font.pixelSize: Theme.iconSizeLarge
+                           color: Theme.accent; text: Theme.icon.gpu }
+                    Text { font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeLarge; font.bold: true
+                           color: Theme.foreground; text: "NVIDIA" }
+                }
 
-            Rectangle { width: parent.width; height: 1; color: "#2a2e3f" }
+                Text { color: Theme.foreground; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize
+                       text: "Policy: " + root.policy.toUpperCase()
+                             + (root.backendUnresolved ? "  (backend unresolved)" : "") }
+                Text { color: Theme.foregroundMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                       text: "Runtime: " + root.runtimePm + "   ·   PCI: " + root.pciPower
+                             + (root.d3coldConfirmed ? " (confirmed)" : "") }
+                Text { visible: root.driver.length > 0
+                       color: Theme.foregroundMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                       text: "driver " + root.driver + (root.moduleVersion ? ("  ·  " + root.moduleVersion) : "") }
 
-            Text { color: "#c0caf5"; font.pixelSize: 12; text: "Runtime: " + root.runtimePm }
-            Text {
-                color: "#c0caf5"; font.pixelSize: 12
-                text: "PCI power: " + root.pciPower + (root.d3coldConfirmed ? "  (confirmed)" : "")
-            }
-            Text {
-                visible: root.driver.length > 0
-                color: "#8a92b2"; font.pixelSize: 11
-                text: "driver " + root.driver + (root.moduleVersion ? ("  ·  " + root.moduleVersion) : "")
-            }
+                Rectangle { width: parent.width; height: 1; color: Theme.withAlpha(Theme.border, 0.5)
+                            visible: root.clientsDetected > 0 }
+                Text { visible: root.clientsDetected > 0
+                       color: Theme.foreground; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                       text: "Detected NVIDIA clients (best-effort):" }
+                Repeater {
+                    model: root.clients
+                    Text {
+                        required property var modelData
+                        color: Theme.foregroundMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                        text: "  - " + modelData.comm + " (pid " + modelData.pid + ")"
+                    }
+                }
 
-            Rectangle { width: parent.width; height: 1; color: "#2a2e3f"; visible: root.clientsDetected > 0 }
+                Rectangle { width: parent.width; height: 1; color: Theme.withAlpha(Theme.border, 0.5)
+                            visible: root.deep !== null }
+                Text { visible: root.deep !== null; color: Theme.foreground
+                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                       text: root.deep ? ("Temp " + root.deep.temp_c + "°C   ·   VRAM " + root.deep.mem_used_mib
+                                          + "/" + root.deep.mem_total_mib + " MiB   ·   " + root.deep.util_pct + "%") : "" }
 
-            Text {
-                visible: root.clientsDetected > 0
-                color: "#c0caf5"; font.pixelSize: 12
-                text: "Detected NVIDIA clients (best-effort):"
-            }
-            Repeater {
-                model: root.clients
-                Text {
-                    required property var modelData
-                    color: "#8a92b2"; font.pixelSize: 11
-                    text: "  - " + modelData.comm + " (pid " + modelData.pid + ")"
+                Text { visible: root.lastError.length > 0
+                       color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                       wrapMode: Text.WordWrap; width: parent.width; text: root.lastError }
+                Text { visible: root.confirmingDeep
+                       color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+                       wrapMode: Text.WordWrap; width: parent.width
+                       text: "This check may wake or keep the NVIDIA GPU active." }
+
+                Row {
+                    spacing: Theme.spacing
+                    topPadding: 4
+                    PillButton {
+                        visible: root.policy === "eco"
+                        label: root.confirmingDeep ? "Confirm" : "Details"
+                        onClicked: root.requestDeepMetrics()
+                    }
+                    PillButton {
+                        enabled: !root.busy
+                        label: root.policy === "eco" ? "Start Compute" : "Return to Eco"
+                        onClicked: root.policy === "eco" ? root.setCompute() : root.setEco()
+                    }
                 }
             }
+        }
+    }
 
-            Rectangle { width: parent.width; height: 1; color: "#2a2e3f"; visible: root.deep !== null }
-
-            Text { visible: root.deep !== null; color: "#c0caf5"; font.pixelSize: 12
-                   text: root.deep ? ("Temperature: " + root.deep.temp_c + " C") : "" }
-            Text { visible: root.deep !== null; color: "#c0caf5"; font.pixelSize: 12
-                   text: root.deep ? ("VRAM: " + root.deep.mem_used_mib + " / " + root.deep.mem_total_mib + " MiB") : "" }
-            Text { visible: root.deep !== null; color: "#c0caf5"; font.pixelSize: 12
-                   text: root.deep ? ("Utilization: " + root.deep.util_pct + "%") : "" }
-            Text { visible: root.deep !== null; color: "#c0caf5"; font.pixelSize: 12
-                   text: root.deep ? ("Clocks: " + root.deep.clock_sm_mhz + " MHz") : "" }
-
-            Text {
-                visible: root.lastError.length > 0
-                color: "#f7768e"; font.pixelSize: 11; wrapMode: Text.WordWrap; width: parent.width
-                text: root.lastError
-            }
-
-            Text {
-                visible: root.confirmingDeep
-                color: "#e0af68"; font.pixelSize: 11; wrapMode: Text.WordWrap; width: parent.width
-                text: "This check may wake or keep the NVIDIA GPU active."
-            }
-
-            Row {
-                spacing: 8
-                Text {
-                    visible: root.policy === "eco" && !root.busy
-                    color: "#7aa2f7"; font.pixelSize: 12
-                    text: root.confirmingDeep ? "Confirm" : "Show detailed metrics"
-                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.requestDeepMetrics() }
-                }
-            }
-
-            Row {
-                spacing: 10
-                Text {
-                    visible: root.policy === "eco"
-                    color: root.busy ? "#565f89" : "#7aa2f7"; font.pixelSize: 12
-                    text: "Start Compute Session"
-                    MouseArea { anchors.fill: parent; enabled: !root.busy; cursorShape: Qt.PointingHandCursor; onClicked: root.setCompute() }
-                }
-                Text {
-                    visible: root.policy === "compute"
-                    color: root.busy ? "#565f89" : "#7aa2f7"; font.pixelSize: 12
-                    text: "Return to Eco"
-                    MouseArea { anchors.fill: parent; enabled: !root.busy; cursorShape: Qt.PointingHandCursor; onClicked: root.setEco() }
-                }
-            }
+    component PillButton: Rectangle {
+        id: btn
+        property string label
+        signal clicked()
+        implicitWidth: t.implicitWidth + 20
+        implicitHeight: 24
+        radius: Theme.radiusSmall
+        color: ma.containsMouse ? Theme.surfaceHover : Theme.surface
+        opacity: enabled ? 1 : 0.45
+        Text {
+            id: t; anchors.centerIn: parent
+            font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeSmall
+            color: Theme.foreground; text: btn.label
+        }
+        MouseArea {
+            id: ma; anchors.fill: parent; hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            enabled: btn.enabled
+            onClicked: btn.clicked()
         }
     }
 }

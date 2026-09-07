@@ -1,36 +1,25 @@
-// modules/Brightness.qml — screen backlight, click/scroll to adjust.
-//
-// Quickshell has no native brightness type, so this shells out to
-// `brightnessctl` (already in install/packages.gentoo, power group). No
-// backlight device name is hardcoded: `brightnessctl -m` auto-detects the
-// right backlight class device, same principle as lib/hardware.sh.
-//
-// No polling: the initial value is queried once, and again only after a
-// change — either this widget's own click/scroll handler, or an external one
-// (the XF86MonBrightness{Up,Down} keybinds in lua/laptop.lua) reported via
-// the "brightness" IPC target below, the same mechanism services/Frame.qml
-// already uses for Infinite Desktop. The IPC call only re-triggers this
-// existing query; it does not set brightness itself, so control logic still
-// lives in exactly one place (brightnessctl).
-// https://quickshell.org/docs/v0.3.0/types/Quickshell.Io/Process/
-// https://quickshell.org/docs/v0.3.0/types/Quickshell.Io/IpcHandler/
-
+// modules/Brightness.qml — backlight as icon + %, scroll to adjust.
+// Quickshell has no brightness type; shells out to `brightnessctl`. No polling:
+// queried once and again after any change (this widget's scroll, the dashboard
+// slider, or the XF86 keybinds via the "brightness" IPC target).
 import QtQuick
 import Quickshell.Io
+import "root:/"
 
-Row {
+MouseArea {
     id: root
-    spacing: 4
-
     property int percent: -1
     readonly property bool available: percent >= 0
     visible: available
+    implicitWidth: row.implicitWidth
+    implicitHeight: row.implicitHeight
+    cursorShape: Qt.PointingHandCursor
+    onWheel: (w) => bump(w.angleDelta.y > 0 ? 1 : -1)
 
     IpcHandler {
         target: "brightness"
-        function refresh(): void {
-            query.running = true;
-        }
+        function refresh(): void { query.running = true; }
+        function setPercent(p: int): void { root.setPercent(p); }
     }
 
     Process {
@@ -38,37 +27,32 @@ Row {
         command: ["brightnessctl", "-m"]
         stdout: StdioCollector {
             onStreamFinished: {
-                // format: device,class,current,percent%,max
-                const fields = this.text.trim().split(",");
-                if (fields.length >= 4) {
-                    root.percent = parseInt(fields[3], 10);
-                }
+                const f = this.text.trim().split(",");   // device,class,current,percent%,max
+                if (f.length >= 4) root.percent = parseInt(f[3], 10);
             }
         }
     }
+    Process { id: setter; onRunningChanged: if (!running) query.running = true }
 
-    Process {
-        id: setter
-        onRunningChanged: {
-            if (!running) query.running = true;
-        }
-    }
-
-    function bump(sign) {
-        setter.exec(["brightnessctl", "set", sign > 0 ? "5%+" : "5%-"]);
-    }
+    function bump(sign) { setter.exec(["brightnessctl", "-n2", "set", sign > 0 ? "5%+" : "5%-"]); }
+    function setPercent(p) { setter.exec(["brightnessctl", "-n2", "set", Math.max(1, Math.min(100, p)) + "%"]); }
 
     Component.onCompleted: query.running = true
 
-    Text {
-        font.pixelSize: 12
-        color: "#c0caf5"
-        text: root.available ? ("BRI " + root.percent + "%") : ""
-
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onWheel: (wheel) => root.bump(wheel.angleDelta.y > 0 ? 1 : -1)
+    Row {
+        id: row
+        spacing: Theme.gap
+        Text {
+            font.family: Theme.iconFamily
+            font.pixelSize: Theme.iconSize
+            color: Theme.foreground
+            text: Theme.icon.brightness
+        }
+        Text {
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.foregroundMuted
+            text: root.available ? root.percent + "%" : ""
         }
     }
 }

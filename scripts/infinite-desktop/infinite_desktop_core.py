@@ -8,6 +8,24 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hypr_ipc import move_window_exact_lua, batch_async
 from abs_delta import AbsDeltaTracker, units_to_pixels
 
+# world-coordinate / camera layer (scripts/infinite-desktop/world.py). Fully
+# optional — if it fails to import, the pan still works, only the minimap
+# loses its camera tracking.
+try:
+    import world as _world
+except Exception:
+    _world = None
+
+def _cam_bump(ws_id, pan_dx, pan_dy):
+    """After moving every window by (pan_dx, pan_dy), shift the camera the other
+    way so world positions stay put. Never raises."""
+    if _world is None or ws_id is None:
+        return
+    try:
+        _world.bump_camera(ws_id, -pan_dx, -pan_dy)
+    except Exception:
+        pass
+
 # --- per-session lifecycle: one instance per Hyprland session, dies with it ---
 # (see session_lock.py). Done FIRST — before any print or thread — so a second
 # launch in the same session exits quietly and every session logs to its own
@@ -206,6 +224,8 @@ def pan_other_windows(excluded_addr, dx, dy, workspace_id):
                 ny = int(w['at'][1] + dy)
                 exprs.append(move_window_exact_lua(nx, ny, w['address']))
         batch_async(exprs)
+        if exprs:
+            _cam_bump(workspace_id, dx, dy)
     except:
         pass
 
@@ -738,5 +758,7 @@ while True:
                  for w in floating_here]
 
         batch_async(exprs)
+        if exprs:
+            _cam_bump(workspace_id, idx, idy)
     except Exception as e:
         pass

@@ -1,20 +1,24 @@
-// modules/Clock.qml — date/time.
-// SystemClock updates itself at the given precision; no manual Timer needed.
-// Minute precision is enough for a bar clock and keeps this idle between ticks.
-// https://quickshell.org/docs/v0.3.0/types/Quickshell/SystemClock/
-
+// modules/Clock.qml — compact time + weekday. SystemClock, no Timer.
 import QtQuick
 import Quickshell
+import "root:/"
 
-Text {
+Row {
     id: root
-    font.pixelSize: 12
-    color: "#c0caf5"
+    spacing: 5
 
-    SystemClock {
-        id: clock
-        precision: SystemClock.Minutes
+    SystemClock { id: clock; precision: SystemClock.Minutes }
+
+    Text {
+        font.family: Theme.iconFamily
+        font.pixelSize: Theme.iconSize
+        color: Theme.foregroundMuted
+        text: Theme.icon.clock
     }
-
-    text: Qt.formatDateTime(clock.date, "ddd d MMM  hh:mm")
+    Text {
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.foreground
+        text: Qt.formatDateTime(clock.date, "ddd d  ") + Qt.formatDateTime(clock.date, "HH:mm")
+    }
 }

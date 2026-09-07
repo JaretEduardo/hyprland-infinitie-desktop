@@ -261,6 +261,39 @@ calls `sudo`, `emerge`, or `usermod`; on a non-Gentoo host it reports what it
 can and says plainly what needs the real target. See
 [FIRST-RUN.md](FIRST-RUN.md) and [HYBRID-GPU.md](HYBRID-GPU.md#resolving-compute_backend-installsh-first-run).
 
+### `hypr-wallpaper` — wallpaper + wallpaper-driven palette
+
+Not an `install.sh` subcommand — a helper CLI linked to `~/.local/bin` by
+`install.sh dotfiles`.
+
+```
+hypr-wallpaper ~/Pictures/wall.jpg       # static image  (jpg/jpeg/png/webp)
+hypr-wallpaper ~/Pictures/clip.mp4       # animated       (gif/mp4/webm/mkv, via mpvpaper)
+hypr-wallpaper --list-json               # every wallpaper under the library, as JSON
+hypr-wallpaper --seed                    # write the tracked fallback palette (no wallust)
+hypr-wallpaper --reset                   # back to the fallback, stop any video, forget the image
+hypr-wallpaper --status                  # what is active (reads wallpaper.state)
+```
+
+Visual picker: **`Super+W`** (or the navbar wallpaper button) — a grid of
+thumbnails from the library, which is `$HYPR_WALLPAPER_DIR`, else
+`<Pictures>/Wallpapers`, walked recursively. Applying from the picker just runs
+`hypr-wallpaper <path>`.
+
+For a video/GIF, `hypr-wallpaper` extracts a representative frame with `ffmpeg`
+and derives the palette from *that*; the desktop plays the video via `mpvpaper`
+while the lock screen uses the still frame. Animated wallpapers need
+`gui-apps/mpvpaper` + `media-video/ffmpeg` (`recommended`; `install.sh deps`
+prints the `mpvpaper ~amd64` line). Static-only setups can skip both.
+
+Setting a wallpaper's palette needs `x11-misc/wallust` (guru; `install.sh deps`
+prints the `~amd64` line). wallust renders `config/wallust/templates/*` into
+machine-local files that Quickshell, Hyprland (`appearance.lua`), mako, fuzzel
+and hyprlock all read; then `hypr-wallpaper` reloads only what is running.
+Without a wallpaper — or without wallust — the desktop uses the tracked fallback
+palette (`hypr-wallpaper --seed`, run once per session by `autostart.lua`). See
+[ARCHITECTURE.md](ARCHITECTURE.md#wallpaper-driven-theming).
+
 ### `full` — top-level workstation orchestration
 
 ```

@@ -17,6 +17,11 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hypr_ipc import hyprctl_json, move_focus, move_window_exact_lua, focus_window, batch_async
 
+try:
+    import world as _world
+except Exception:
+    _world = None
+
 PROTECTED_APPS = ['brave-browser', 'chromium', 'chromium-browser', 'google-chrome',
                   'firefox', 'firefoxdeveloperedition', 'librewolf', 'vivaldi',
                   'opera', 'microsoft-edge']
@@ -125,6 +130,14 @@ def pan_to_window(floating, target_addr, center_x, center_y):
         exprs.append(move_window_exact_lua(int(nx), int(ny), w["address"]))
 
     batch_async(exprs)
+
+    # whole canvas panned by (dx, dy) -> camera the other way (world.py)
+    if exprs and _world is not None:
+        ws = (target.get("workspace") or {}).get("id")
+        try:
+            _world.bump_camera(ws, -dx, -dy)
+        except Exception:
+            pass
 
     if not is_protected(target):
         focus_window(target_addr)

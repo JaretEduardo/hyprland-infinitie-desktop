@@ -1,0 +1,12 @@
+{
+  "background": "#332632",
+  "foreground": "#f1e2ec",
+  "dark":       "#241a20",
+  "surface":    "#4a3745",
+  "muted":      "#c2aab8",
+  "accent":     "#e6c4d8",
+  "accent2":    "#c9b7d6",
+  "good":       "#c3e0cc",
+  "bad":        "#e6a6b0",
+  "line":       "#5a4657"
+}

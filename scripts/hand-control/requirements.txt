@@ -1,0 +1,12 @@
+# hand-control venv (Python 3.11+). Created by setup-venv.sh into
+# $XDG_DATA_HOME/hand-control/venv — never touches system site-packages.
+#
+# mediapipe 1.0.x ships a `py3-none-manylinux_2_28_x86_64` wheel (generic ABI),
+# so it installs on Python 3.14. It pulls: numpy, opencv-contrib-python,
+# absl-py, flatbuffers, sounddevice, matplotlib, certifi.
+#
+# sounddevice wants libportaudio at runtime but the hand-landmark path never
+# imports the audio module — hand_control.py verifies this on start and prints a
+# clear message if a future mediapipe makes it eager (then: emerge
+# media-libs/portaudio).
+mediapipe~=1.0

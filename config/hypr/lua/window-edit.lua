@@ -108,6 +108,10 @@ end
 
 hl.bind(mod .. " + M", guarded_exec("python3 ~/scripts/viewport_mosaic.py toggle"))
 
+-- SUPER + H → toggle Hand Control (optional webcam gesture control; the camera
+-- is only on while it runs). scripts/hand-control/, also the navbar HandButton.
+hl.bind(mod .. " + H", guarded_exec("hand-control toggle"))
+
 hl.bind(mod .. " + ALT + Tab",         guarded_exec("python3 ~/scripts/world_navigate.py next-window"))
 hl.bind(mod .. " + ALT + SHIFT + Tab", guarded_exec("python3 ~/scripts/world_navigate.py prev-window"))
 for i = 1, 9 do

@@ -65,9 +65,10 @@ Scope {
                     NavButton { glyph: Theme.icon.wallpaper; name: "wallpapers" }
                     NavButton { glyph: Theme.icon.dnd;       name: "notifications" }
                     Item { width: 4; height: 1 }
-                    Workspaces { anchors.verticalCenter: parent.verticalCenter }
-                    Item { width: 4; height: 1 }
                     MosaicButton { anchors.verticalCenter: parent.verticalCenter }
+                    HandButton { anchors.verticalCenter: parent.verticalCenter }
+                    Item { width: 4; height: 1 }
+                    Workspaces { anchors.verticalCenter: parent.verticalCenter }
                 }
 
                 // ---- centre: the World Map ring -----------------------

@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# hand-control — start / stop / toggle / status / debug the Hand Control
+# experiment (optional webcam gesture control for the Infinite Desktop).
+#
+# The webcam is opened ONLY while `hand_control.py` runs. `stop` kills it and
+# releases the device. Bound to Super+H (lua/window-edit.lua) and the navbar's
+# HandButton.qml.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+PY_SCRIPT="$HERE/hand_control.py"
+
+RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/hand-control"
+PID_FILE="$RUN_DIR/hand.pid"
+STATE_FILE="$RUN_DIR/state"       # written by hand_control.py: running=/shutter=/tracking=
+LOG_FILE="$RUN_DIR/hand.log"
+
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/hand-control"
+VENV="$DATA_DIR/venv"
+VENV_PY="$VENV/bin/python"
+
+mkdir -p "$RUN_DIR"
+
+_running() {
+    [ -f "$PID_FILE" ] || return 1
+    local pid; pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+_start() {
+    if _running; then
+        echo "hand-control: already running (pid $(cat "$PID_FILE"))"
+        return 0
+    fi
+    if [ ! -x "$VENV_PY" ]; then
+        echo "hand-control: venv not found at $VENV" >&2
+        echo "  run:  $HERE/setup-venv.sh" >&2
+        return 1
+    fi
+    : > "$LOG_FILE"
+    # hand_control.py writes its own $PID_FILE (and the state file) on startup
+    rm -f "$PID_FILE"
+    setsid "$VENV_PY" "$PY_SCRIPT" </dev/null >>"$LOG_FILE" 2>&1 &
+    disown || true
+    for _ in $(seq 1 20); do          # give it up to ~4 s to come up
+        _running && break
+        sleep 0.2
+    done
+    if _running; then
+        echo "hand-control: started (pid $(cat "$PID_FILE")) — log: $LOG_FILE"
+    else
+        echo "hand-control: failed to start, see $LOG_FILE" >&2
+        grep -vE '^INFO:|^W0000|inference_feedback|landmark_projection' "$LOG_FILE" | tail -12 >&2 || true
+        rm -f "$PID_FILE" "$STATE_FILE"
+        return 1
+    fi
+}
+
+_stop() {
+    if ! _running; then
+        echo "hand-control: not running"
+        rm -f "$PID_FILE" "$STATE_FILE"
+        return 0
+    fi
+    local pid; pid="$(cat "$PID_FILE")"
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.2
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+    rm -f "$PID_FILE" "$STATE_FILE"
+    echo "hand-control: stopped, camera released"
+}
+
+_status() {
+    if _running; then
+        local sh="?" tr="?"
+        if [ -f "$STATE_FILE" ]; then
+            sh="$(sed -n 's/^shutter=//p' "$STATE_FILE")"
+            tr="$(sed -n 's/^tracking=//p' "$STATE_FILE")"
+        fi
+        echo "running (pid $(cat "$PID_FILE"))  shutter=$sh  tracking=$tr"
+        [ -f "$LOG_FILE" ] && grep -E "fps|rss|shutter [OC]" "$LOG_FILE" | tail -1 || true
+        return 0
+    fi
+    echo "inactive"
+    return 1
+}
+
+_debug() {
+    if _running; then
+        echo "hand-control: stop the background instance first (hand-control stop)" >&2
+        return 1
+    fi
+    if [ ! -x "$VENV_PY" ]; then
+        echo "hand-control: venv not found — run $HERE/setup-venv.sh" >&2
+        return 1
+    fi
+    echo "hand-control: debug preview (Esc to quit)"
+    HAND_CONTROL_DEBUG=1 exec "$VENV_PY" "$PY_SCRIPT"
+}
+
+case "${1:-}" in
+    start)  _start ;;
+    stop)   _stop ;;
+    toggle) if _running; then _stop; else _start; fi ;;
+    status) _status ;;
+    debug)  _debug ;;
+    *) echo "usage: hand-control {start|stop|toggle|status|debug}" >&2; exit 2 ;;
+esac

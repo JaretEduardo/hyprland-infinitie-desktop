@@ -146,7 +146,7 @@ pcall-free.
 | `appearance.lua` | gaps / rounding / blur / shadow / animations (static); border + shadow **colours** come from `~/.config/hypr/colors.local.lua` (wallpaper-driven, with a built-in fallback) |
 | `bindings.lua` | basic desktop keybinds; `Super+Return` → `$TERMINAL` (falls back to `foot`); **`Super` tap** and `Super+Space` → native Quickshell launcher (`qs ipc call launcher toggle`); `Super+Shift+Space` → `fuzzel` (fallback); `Super+W` → wallpaper picker; `Super+Tab` → World Map (`qs ipc call worldmap toggle`; Alt+Tab is not bound); `Super`+LMB/RMB drag → move/resize the floating window; `Print` / `Super+Print` / `Super+Shift+S` → `hypr-screenshot` (see README "Keybindings"). The `Super` tap is `release = true` on `Super_L`, so it does **not** fire when `Super` was part of a key combo; `lua/window-edit.lua` re-binds it with a guard so a `Super`+mouse drag doesn't fire it either. |
 | `floating-world.lua` | the window model — every normal window opens **floating**, smart-sized, placed near the last-focused window (see below). Re-binds `Super+F` → pseudo-maximize; `Super+Shift+F` → real fullscreen. |
-| `window-edit.lua` | `Super`+LMB/RMB move/resize coherence: the SUPER-tap-vs-launcher guard, dropping a window's pseudo-max restore state on a hand edit, `Super+M` (Viewport Mosaic), `Super+Alt+Tab` (individual-window nav / mosaic focus cycle) and `Super+Alt+1..9` (navbar app groups). No class names in Lua. Loaded after `floating-world.lua`. |
+| `window-edit.lua` | `Super`+LMB/RMB move/resize coherence: the SUPER-tap-vs-launcher guard, dropping a window's pseudo-max restore state on a hand edit, `Super+M` (Viewport Mosaic), `Super+Alt+Tab` (individual-window nav / mosaic focus cycle), `Super+Alt+1..9` (navbar app groups), `Super+H` (Hand Control toggle). No class names in Lua. Loaded after `floating-world.lua`. |
 | `laptop.lua` | XF86 volume/mic/brightness/media keybinds (`wpctl`/`brightnessctl`/`playerctl`) |
 | `autostart.lua` | environment import; polkit agent (`hyprpolkitagent.service`, user unit); `mako` (notifications); Quickshell; `hypridle` — each guarded so a reload never double-spawns |
 | `infinite-desktop.lua` | Infinite Desktop autostart + keybinds; the only seam to that component. Loaded last; `hl.unbind`s + rebinds `SUPER + arrows`. |
@@ -526,3 +526,54 @@ every window stays floating, inside the Infinite Desktop, panned by the daemon;
   up while a mosaic is active — it watches the snapshot file. The World Map
   naturally shows the mosaic positions while active and the original spread
   after restore (it reads live geometry; nothing special needed).
+
+### Hand Control — `scripts/hand-control/` (opt-in experiment)
+
+Optional webcam gesture control, **off by default**, a separate process (no
+computer vision near the evdev daemon). `hand-control {start|stop|toggle|
+status|debug}` — the camera is opened only while `hand_control.py` runs;
+`Super+H` and the navbar `modules/HandButton.qml` toggle it.
+
+First pass, all reusing existing pieces. Gesture vocabulary (priority
+high→low: shutter-closed → fist → partial-hand → pan → tilt → push):
+
+- **open palm + translate** → pan (`world.py` camera + `hypr_ipc` batch, same
+  as touchpad/keyboard). Tracks the palm *base* (wrist + two MCPs) so a tilt
+  doesn't jerk it.
+- **fist → CLUTCH** (absolute priority): ends the pan now, cancels the tilt
+  candidate, and on release the current hand position becomes the new pan
+  baseline — the physical "clutch" to recolocate the hand without moving the
+  desktop.
+- **fist → thumbs-up** → `viewport_mosaic.py toggle` — a state machine
+  `idle → fist_armed → thumbs_pending → fired → wait_reset`: only a *stable*
+  fist that then becomes a clear thumbs-up (four fingers curled, thumb extended
+  and pointing up) fires; holding it never re-toggles; a bare thumbs-up with no
+  fist does nothing.
+- **palm tilt L/R** → `world_navigate.py prev-window`/`next-window` — own state
+  machine, **only evaluated while the palm is stationary** (pan has priority; a
+  natural wrist tilt during a pan never navigates). On fire it ends the pan,
+  suppresses it for `nav_block_seconds` while `world_navigate` moves, then
+  re-baselines — the two never move the camera at once. Angle auto-zeroed to a
+  near-upright rest pose; `confirm` + `cooldown` + return-to-neutral.
+
+**No gesture uses finger count** (a finger leaving the frame at an edge makes
+false triggers); tilt uses stable wrist/MCP landmarks and the mosaic needs the
+deliberate fist→thumbs sequence. A **partial hand** (a palm landmark off-frame)
+blocks all discrete actions but not the pan or the clutch. The pan uses an
+adaptive EMA + isolated-spike rejection (`max_tracking_speed`) and rides out a
+1–2 frame dropout. All timings are in **seconds** (real rate ~15–18 fps). Mirror
+is applied exactly once.
+
+**Shutter-aware.** The privacy shutter has no signal on Linux, so it is inferred
+from the stream — low variance + low texture + temporal stability, multi-metric
+with hysteresis so a dark room does not flip it. While CLOSED: no MediaPipe, no
+actions, gestures cleared, loop drops to ~4 FPS; on reopen the smoothing resets
+so nothing jumps or replays. `$XDG_RUNTIME_DIR/hand-control/state`
+(`running=`/`shutter=`/`tracking=`) drives the navbar HandButton's three states
+(OFF / shutter-CLOSED / ACTIVE).
+
+Config: `~/.config/hand-control/config.toml` (thresholds, cooldowns, shutter
+delays — nothing hard-coded). Deps (mediapipe + opencv) live in
+`$XDG_DATA_HOME/hand-control/venv`, created by `setup-venv.sh` by hand — never
+system-wide, CPU model only (does not wake the RTX). See
+[hand-control/README.md](../scripts/hand-control/README.md).

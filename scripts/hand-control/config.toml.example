@@ -1,0 +1,86 @@
+# hand-control config. setup-venv.sh copies this to
+# ~/.config/hand-control/config.toml on install; hand_control.py also creates it
+# from here on first run. It always prints which file it loaded.
+#
+# Every timing is in SECONDS, not frame counts — the real tracking rate is
+# ~15 fps. Deltas/velocities are NORMALISED (0..1 across the frame), so nothing
+# is tuned to a screen resolution.
+
+[camera]
+index  = 0        # /dev/video<index>
+mirror = true     # selfie view: hand visually right -> next-window / pan right
+width  = 640
+height = 480
+fps    = 24       # request; effective rate is inference-bound (~15)
+
+[tracking]
+min_detection_confidence = 0.6
+min_tracking_confidence  = 0.5
+
+# --- gesture vocabulary ---
+#   OPEN PALM + translate X/Y   -> PAN
+#   FIST                        -> CLUTCH (stop pan; recolocate the hand freely)
+#   FIST then THUMBS-UP         -> toggle Viewport Mosaic
+#   palm TILT left / right      -> previous / next window
+# No gesture uses finger COUNT — a finger leaving the frame at an edge would make
+# a false trigger. Fist = "the four main fingers are curled" (safe either way).
+# The mosaic can only fire from a stable fist that then becomes a thumbs-up.
+
+[pan]
+# Tracks the palm BASE (wrist + index-MCP + pinky-MCP), which barely moves when
+# you only tilt the hand — so tilt is a separate channel and does not jerk the pan.
+sensitivity         = 1600.0   # normalised palm-base delta -> logical px
+smoothing           = 0.35     # EMA factor at low speed (lower = smoother)
+smoothing_fast      = 0.35     # EMA factor at high speed (raise toward ~0.7 for
+                               #   snappier fast moves; == smoothing -> constant)
+speed_ref           = 1.2      # norm/s at which smoothing_fast is reached
+deadzone            = 0.005    # normalised; ignore jitter below this
+max_delta_per_frame = 55       # logical px hard cap per processed frame
+confirm_seconds     = 0.06     # tiny; pan starts almost immediately
+grace_seconds       = 0.22     # keep panning through a brief label flicker / dropout
+max_tracking_speed  = 4.0      # norm/s; reject isolated landmark spikes (an
+                               #   impossible jump between frames), keep last point
+
+[tilt]
+# prev / next window. Only evaluated while the palm is STATIONARY — a natural
+# wrist tilt during a pan must NOT navigate (pan has priority).
+angle_threshold       = 0.45   # radians (~26°) of tilt from upright (auto-zeroed)
+confirm_seconds       = 0.18   # hold the tilt this long, same direction, to fire
+cooldown_seconds      = 0.6    # after a fire
+neutral_threshold     = 0.20   # must return within this of upright to re-arm
+max_translation_speed = 0.12   # palm must be slower than this (norm/s) ...
+stationary_seconds    = 0.15   # ... continuously this long before tilt can arm
+nav_block_seconds     = 0.5    # on fire: suppress pan while world_navigate moves,
+                               #   then re-baseline the pan to the current hand pos
+
+[mosaic_gesture]
+# FIST (stable) -> THUMBS-UP -> toggle Viewport Mosaic. A bare thumbs-up (no
+# fist first) does nothing; holding the thumbs-up does not re-toggle.
+fist_arm_seconds          = 0.18   # fist must be stable this long to arm
+thumb_hold_seconds        = 0.25   # then hold the thumbs-up this long to fire
+cooldown_seconds          = 0.8    # minimum between fires
+reset_seconds             = 0.15   # after a fire, hold fist OR open palm this
+                                   #   long to re-arm
+thumb_direction_threshold = 0.035  # how clearly "up" (normalised -y) the thumb
+                                   #   must point (rejects a sideways thumb)
+
+[shutter]
+# Detected from the stream (no HW signal). Primary metric: std of the frame
+# downscaled to ~16 px — averages sensor noise away, keeps real scene structure.
+# Calibrate with `hand-control debug`: open / close the shutter, read `lofi` and
+# `std`, put a threshold in each gap.
+enabled         = true
+sample_width    = 128
+lofi_std_open   = 18.0
+lofi_std_closed = 10.0
+stddev_open     = 12.0
+stddev_closed   = 9.0
+texture_open    = 1.5
+temporal_open   = 1.0
+close_delay     = 0.65   # seconds of blank before OPEN -> CLOSED
+open_delay      = 0.30   # seconds of valid before CLOSED -> OPEN
+closed_fps      = 4      # capture / check rate while the shutter is closed
+
+[debug]
+show_preview = false     # `hand-control debug` overrides this to true
+log_every    = 60        # frames between perf lines in the log

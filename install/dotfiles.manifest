@@ -66,6 +66,7 @@ config | config/quickshell/panels/WallpaperPicker.qml    | quickshell/panels/Wal
 config | config/quickshell/modules/Workspaces.qml   | quickshell/modules/Workspaces.qml
 config | config/quickshell/modules/WorldButton.qml  | quickshell/modules/WorldButton.qml
 config | config/quickshell/modules/MosaicButton.qml | quickshell/modules/MosaicButton.qml
+config | config/quickshell/modules/HandButton.qml   | quickshell/modules/HandButton.qml
 config | config/quickshell/modules/OpenApps.qml     | quickshell/modules/OpenApps.qml
 config | config/quickshell/modules/ActiveWindow.qml | quickshell/modules/ActiveWindow.qml
 config | config/quickshell/modules/Clock.qml        | quickshell/modules/Clock.qml
@@ -122,3 +123,8 @@ home | scripts/desktop/hypr-greeting   | .local/bin/hypr-greeting
 # hypr-weather: optional one-line weather for the hyprlock weather label.
 # OFF unless ~/.config/hypr/weather.conf exists (then one opt-in wttr.in call).
 home | scripts/desktop/hypr-weather    | .local/bin/hypr-weather
+# hand-control: optional webcam gesture control (Super+H / navbar HandButton).
+# CLI only; hand_control.py sits beside it and runs in a venv
+# ($XDG_DATA_HOME/hand-control/venv) that scripts/hand-control/setup-venv.sh
+# creates by hand. The webcam is opened only while it runs.
+home | scripts/hand-control/hand-control | .local/bin/hand-control
